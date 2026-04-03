@@ -10,10 +10,11 @@ import Controls from '../components/Home/Controls';
 import Fotter from '../components/Layout/Fotter';
 
 const ANGLES = [
-  { id: 'right', label: 'ข้างขวา', icon: <FaCarSide /> },
+  { id: 'right', label: 'ข้างขวา', icon: <FaCarSide style={{ transform: 'scaleX(-1)' }} /> },
   { id: 'front', label: 'หน้า', icon: <MdDirectionsCar /> },
   { id: 'rear', label: 'หลัง', icon: <MdDirectionsCar style={{ transform: 'rotate(180deg)' }} /> },
-  { id: 'left', label: 'ข้างซ้าย', icon: <FaCarSide style={{ transform: 'scaleX(-1)' }} /> }
+  { id: 'left', label: 'ข้างซ้าย', icon: <FaCarSide /> }
+
 ];
 
 function Home() {
@@ -39,20 +40,20 @@ function Home() {
 
       <main className="p-6 flex flex-col gap-6">
         <div className="flex flex-col relative">
-          <Viewfinder 
-            activeAngle={activeAngle} 
+          <Viewfinder
+            activeAngle={activeAngle}
             capturedImage={capturedImage}
           />
 
-          <AngleSelector 
-            angles={ANGLES} 
-            activeAngle={activeAngle} 
-            onSelect={setActiveAngle} 
+          <AngleSelector
+            angles={ANGLES}
+            activeAngle={activeAngle}
+            onSelect={setActiveAngle}
           />
         </div>
 
-        <Controls 
-          activeAngle={activeAngle} 
+        <Controls
+          activeAngle={activeAngle}
           onImageCapture={saveImage}
         />
       </main>
