@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-[#f8fbff] text-gray-900 antialiased;
+  }
+}
+
+/* Custom specialized focus-bracket logic */
+@layer utilities {
+  .focus-bracket {
+    @apply absolute w-10 h-10 border-white/60 pointer-events-none;
+  }
+  .focus-top-left { border-top-width: 2px; border-left-width: 2px; top: 30px; left: 30px; }
+  .focus-top-right { border-top-width: 2px; border-right-width: 2px; top: 30px; right: 30px; }
+  .focus-bottom-left { border-bottom-width: 2px; border-left-width: 2px; bottom: 30px; left: 30px; }
+  .focus-bottom-right { border-bottom-width: 2px; border-right-width: 2px; bottom: 30px; right: 30px; }
+}
+
+@keyframes rotate {
+  from { transform: translateX(-50%) rotate(0deg); transform-origin: 0 75px; }
+  to { transform: translateX(-50%) rotate(360deg); transform-origin: 0 75px; }
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); scale: 0.98; }
+  to { opacity: 1; transform: translateY(0); scale: 1; }
+}
+
+@keyframes pingSlow {
+  0% { transform: scale(1); opacity: 1; }
+  70% { transform: scale(1.4); opacity: 0; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .animate-slide-up {
+    animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .animate-ping-slow {
+    animation: pingSlow 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+  .animate-spin-slow {
+    animation: spin 3s linear infinite;
+  }
+}
