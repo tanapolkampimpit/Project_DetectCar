@@ -1,4 +1,5 @@
 torch
+timm
 torchvision
 pandas
 numpy
@@ -9,3 +10,4 @@ fastapi
 uvicorn
 python-multipart
 pydantic-settings
+opencv-python-headless

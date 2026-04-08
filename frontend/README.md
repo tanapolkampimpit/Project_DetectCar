@@ -1,16 +1,26 @@
-# React + Vite
+# สรุปเปรียบเทียบการเปลี่ยนแปลง Path ข้อมูล (Old vs New)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+### 1. DOCUMENT RETURN
+- **Path เดิม:** `\\10.0.0.52\sflow\DOCUMENT_RETURN\YYYYMMDD\บริษัทประกัน\ทะเบียนรถ SALEID`
+- **Path ใหม่:** `\\10.0.0.134\operation-delivery\รูปเอกสารลูกค้า(ตามวันที่ถ่าย)\ปีปัจจุบัน\DD-MM-YYYY\ประเภทส่งให้ประกัน\บริษัทประกัน\ทะเบียนรถ  SALEID`
+> **📌 สิ่งที่เปลี่ยนแปลง:** > - เปลี่ยน Server IP จาก `.52` เป็น `.134`
+> - เปลี่ยนโฟลเดอร์หลักเป็น `operation-delivery`
+> - ปรับโครงสร้างโฟลเดอร์วันที่แบบใหม่โดยระบุถึง `ปีปัจจุบัน\DD-MM-YYYY\ประเภทส่งให้ประกัน`
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### 2. MT PHOTO
+- **Path เดิม:** `\\10.0.0.52\sflow\MT_PHOTO\YYYYMMDD\บริษัทประกัน\ทะเบียนรถ SALEID`
+- **Path ใหม่:** `\\10.0.0.137\MTPHOTO\ปีปัจจุบัน\เดือนปัจจุบัน\DD-MM-YYYY\กรุงเทพ\ประเภทส่งให้ประกัน\บริษัทประกัน\ทะเบียนรถ (จำนวน) SALEIDทะเบียนรถ (จำนวน) SALEID`
+> **📌 สิ่งที่เปลี่ยนแปลง:** > - เปลี่ยน Server IP จาก `.52` เป็น `.137`
+> - เปลี่ยนชื่อโฟลเดอร์หลักจาก `MT_PHOTO` เป็น `MTPHOTO`
+> - เพิ่มความลึกของโฟลเดอร์แยกตาม `เดือนปัจจุบัน` และมีโฟลเดอร์ `กรุงเทพ\ประเภทส่งให้ประกัน`
+> - เพิ่มการระบุ `(จำนวน)` เข้าไปในโฟลเดอร์ทะเบียนรถและทำซ้ำกัน 2 ชั้น
 
-## React Compiler
+---
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### 3. OLD POLICY
+- **Path เดิม:** `\\10.0.0.52\sflow\OLD_POLICY\YYYYMMDD\บริษัทประกัน\ทะเบียนรถ SALEID`
+- **Path ใหม่:** `\\10.0.0.134\operation-delivery\รูปเอกสารลูกค้า(ตามวันที่ถ่าย)\ปีปัจจุบัน\DD-MM-YYYY\M35\บริษัทประกัน\ทะเบียนรถ (จำนวน) SALEID`
+> **📌 สิ่งที่เปลี่ยนแปลง:** > - เปลี่ยน Server IP จาก `.52` เป็น `.134`
+> - **ยุบรวม** โครงสร้าง Path ใหม่ไปใช้รูปแบบเดียวกันกับของ `DOCUMENT RETURN` ทั้งหมด
