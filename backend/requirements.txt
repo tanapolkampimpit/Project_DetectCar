@@ -1,13 +1,25 @@
-torch
-timm
-torchvision
-pandas
-numpy
-scikit-learn
-tqdm
-Pillow
-fastapi
-uvicorn
+# ==========================================
+# ConnectCar API Dependencies
+# ==========================================
+
+# --- API & Server (FastAPI Ecosystem) ---
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
 python-multipart
 pydantic-settings
+
+# --- Deep Learning & AI Models ---
+torch>=2.0.0
+torchvision
+timm
+ultralytics
+
+# --- Computer Vision & Image Processing ---
 opencv-python-headless
+Pillow
+
+# --- Data Science & Utilities ---
+numpy
+pandas
+scikit-learn
+tqdm

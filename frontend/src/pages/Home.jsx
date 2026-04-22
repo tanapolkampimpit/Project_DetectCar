@@ -141,7 +141,7 @@ export default function Home() {
       formData.append('file', file, 'image.jpg');
       formData.append('expected_view', activeAngle.modelKey);
 
-      const res = await fetch('http://localhost:8000/api/v1/analyze', {
+      const res = await fetch('/api/v1/analyze', {
         method: 'POST',
         body: formData,
       });
@@ -200,7 +200,7 @@ export default function Home() {
       const formData = new FormData();
       formData.append('file', blurred, 'image.jpg');
       formData.append('expected_view', activeAngle.modelKey);
-      const res = await fetch('http://localhost:8000/api/v1/analyze', { method: 'POST', body: formData });
+      const res = await fetch('/api/v1/analyze', { method: 'POST', body: formData });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
       if (data.status === 'success') setResult(data);
