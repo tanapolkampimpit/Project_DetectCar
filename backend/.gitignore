@@ -1,0 +1,26 @@
+# Environments
+.env
+venv/
+env/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Large AI Models (Prevent Git from hanging/crashing)
+Services/*.pth
+Services/*.pt
+
+# Pytest / Coverage
+.pytest_cache/
+coverage.xml
+*.cover

@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv/
+venv/
+ENV/
+env/
+.git/
+.gitignore
+.vscode/
+test/
+load_test.py
+# Models are included by default; comment if you prefer mounting them
+# *.pt
+# *.pth
+# If you want to include models in the image, comment the line above
+# But usually models are better handled via volumes or downloaded during build

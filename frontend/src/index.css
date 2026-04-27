@@ -6,7 +6,6 @@
   }
 }
 
-/* Custom specialized focus-bracket logic */
 @layer utilities {
   .focus-bracket {
     @apply absolute w-10 h-10 border-white/60 pointer-events-none;
