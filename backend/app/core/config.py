@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     NUM_BATCH_WORKERS: int = 3
     MAX_QUEUE_DEPTH: int = 200
     MAX_FILE_BYTES: int = 25 * 1024 * 1024
+    BLUR_THRESHOLD: float = 50.0
+    MIN_CAR_AREA_RATIO: float = 0.08
+
     
     MATCH_THRESHOLD: float = 55.0
     YOLO_CONF_BYPASS: float = 80.0

@@ -1,4 +1,7 @@
+import logging
 from typing import Dict, Any, List
+
+logger = logging.getLogger("analyze_api")
 
 LABELS = [
     "Front", "Front-Left", "Left", "Back-Left",
@@ -48,15 +51,19 @@ def build_result(item, probs: list, yolo_out, total_ms: float, settings) -> dict
                         if area > largest_car_ratio:
                             largest_car_ratio = area
             
-            if yolo_says_vehicle and largest_car_ratio > 0 and largest_car_ratio < 0.08:
+            if yolo_says_vehicle and largest_car_ratio > 0 and largest_car_ratio < settings.MIN_CAR_AREA_RATIO:
                 is_too_far = True
+            
+            if not yolo_says_vehicle:
+                logger.info("[%s] YOLO found no vehicle | fallback to confidence: %.1f%%", item.request_id, best["confidence"])
             
         is_car = yolo_says_vehicle or best["confidence"] >= settings.YOLO_CONF_BYPASS
 
     accepted = INSURANCE_ANGLE_MAP.get(item.expected_view, [item.expected_view])
     match = (best["label"] in accepted and best["confidence"] >= settings.MATCH_THRESHOLD and is_car)
 
-    is_blurry = item.blur_score < 50.0
+    is_blurry = item.blur_score < settings.BLUR_THRESHOLD
+
 
     return {
         "status"    : "success",

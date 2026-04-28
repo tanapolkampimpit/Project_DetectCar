@@ -130,9 +130,11 @@ function fromToon(toonStr) {
     } else if (content.includes(':')) {
       const [key, ...rest] = content.split(':');
       let val = rest.join(':').trim();
-      if (val === 'true') val = true;
-      else if (val === 'false') val = false;
-      else if (!isNaN(val)) val = Number(val);
+      const lowerVal = val.toLowerCase();
+      if (lowerVal === 'true') val = true;
+      else if (lowerVal === 'false') val = false;
+      else if (lowerVal === 'null') val = null;
+      else if (!isNaN(val) && val !== '') val = Number(val);
       current[key.trim()] = val;
     } else {
       // New object or simple list
@@ -214,8 +216,7 @@ export default function Home() {
         body: formData,
       });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
-      const toonStr = await res.text();
-      const data = fromToon(toonStr);
+      const data = await res.json();
 
       if (data.status === 'success') {
         setResult(data);
@@ -293,8 +294,7 @@ export default function Home() {
       formData.append('expected_view', activeAngle.modelKey);
       const res = await fetch('/api/v1/analyze', { method: 'POST', body: formData });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
-      const toonStr = await res.text();
-      const data = fromToon(toonStr);
+      const data = await res.json();
       if (data.status === 'success') setResult(data);
     } catch (err) {
       setResult({ error: true, message: err.message });
@@ -329,8 +329,7 @@ export default function Home() {
         throw new Error(errText || `Server error ${res.status}`);
       }
 
-      const toonStr = await res.text();
-      const data = fromToon(toonStr);
+      const data = await res.json();
       
       if (data.status === 'success') {
         const newVerified = { ...verifiedAngles };

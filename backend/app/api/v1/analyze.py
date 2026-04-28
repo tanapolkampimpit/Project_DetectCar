@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 import logging
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request, Response
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from app.core.engine import backpressure, BatchItem, BatchInferenceEngine
 from app.services.preprocessor import decode_and_analyze_image, preprocess
@@ -10,38 +10,6 @@ from app.core.config import settings
 
 logger = logging.getLogger("analyze_api")
 router = APIRouter()
-
-# ─── TOON Serialization Helper ──────────────────────────────────────────────
-def to_toon(data: any, indent: int = 0) -> str:
-    """Serializes a Python object to Token-Oriented Object Notation (TOON)."""
-    lines = []
-    prefix = "  " * indent
-    
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if isinstance(v, (dict, list)):
-                lines.append(f"{prefix}{k}")
-                lines.append(to_toon(v, indent + 1))
-            else:
-                lines.append(f"{prefix}{k}: {v}")
-    elif isinstance(data, list):
-        # Tabular layout for uniform lists of dicts
-        if data and all(isinstance(x, dict) for x in data) and len(data) > 1:
-            keys = list(data[0].keys())
-            lines.append(f"{prefix}| {' | '.join(keys)} |")
-            for item in data:
-                vals = [str(item.get(k, "")) for k in keys]
-                lines.append(f"{prefix}| {' | '.join(vals)} |")
-        else:
-            for item in data:
-                if isinstance(item, (dict, list)):
-                    lines.append(to_toon(item, indent))
-                else:
-                    lines.append(f"{prefix}- {item}")
-    else:
-        lines.append(f"{prefix}{data}")
-        
-    return "\n".join(filter(None, lines))
 
 @router.post("/analyze")
 async def analyze(
@@ -54,6 +22,9 @@ async def analyze(
 
     if expected_view not in INSURANCE_ANGLE_MAP:
         raise HTTPException(400, {"error": "invalid_expected_view", "valid_values": LABELS})
+
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Invalid file type. Only images are allowed.")
 
     if not backpressure.acquire():
         logger.warning("[%s] queue full | client=%s", request_id, client_ip)
@@ -103,9 +74,7 @@ async def analyze(
 
         try:
             result = await asyncio.wait_for(future, timeout=15.0)
-            # Return TOON format
-            toon_str = to_toon(result)
-            return Response(content=toon_str, media_type="text/toon")
+            return result
         except asyncio.TimeoutError:
             logger.error("[%s] future timeout", request_id)
             raise HTTPException(503, "Inference timeout.")
@@ -129,6 +98,12 @@ async def analyze_batch(
 ):
     request_id = uuid.uuid4().hex[:8]
 
+    if len(files) > 15:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"ส่งรูปภาพได้สูงสุด 15 รูปต่อ 1 ครั้ง (คุณส่งมา {len(files)} รูป)"
+        )
+
     if len(expected_views) == 1 and "," in expected_views[0]:
         expected_views = [v.strip() for v in expected_views[0].split(",")]
 
@@ -139,12 +114,21 @@ async def analyze_batch(
             detail=f"จำนวนรูปภาพ ({len(files)}) ไม่เท่ากับจำนวนมุมที่ระบุ ({len(expected_views)})"
         )
 
+    for f in files:
+        if not f.content_type.startswith("image/"):
+            raise HTTPException(400, f"ไฟล์ {f.filename} ไม่ใช่รูปภาพ")
+
+    acquired_count = 0
     for _ in files:
         if not backpressure.acquire():
+            for _ in range(acquired_count):
+                backpressure.release()
             raise HTTPException(429, {"error": "queue_full", "message": "Server overloaded."})
+        acquired_count += 1
 
     engine: BatchInferenceEngine = request.app.state.engine
     futures = []
+    items_submitted = 0
 
     try:
         for i, (file, exp_view) in enumerate(zip(files, expected_views)):
@@ -169,8 +153,14 @@ async def analyze_batch(
             )
             engine.submit_nowait(item)
             futures.append(future)
+            items_submitted += 1
 
-        results = await asyncio.gather(*futures, return_exceptions=True)
+        try:
+            results = await asyncio.wait_for(asyncio.gather(*futures, return_exceptions=True), timeout=30.0)
+        except asyncio.TimeoutError:
+            logger.error("[%s] batch inference timeout", request_id)
+            raise HTTPException(503, "Batch Inference timeout.")
+
         final_results = process_batch_results(results, expected_views, files)
 
         response_data = {
@@ -179,10 +169,16 @@ async def analyze_batch(
             "results": final_results
         }
         
-        # Return TOON format
-        toon_str = to_toon(response_data)
-        return Response(content=toon_str, media_type="text/toon")
+        return response_data
 
+    except HTTPException as exc:
+        unsubmitted = len(files) - items_submitted
+        for _ in range(unsubmitted):
+            backpressure.release()
+        raise exc
     except Exception as exc:
+        unsubmitted = len(files) - items_submitted
+        for _ in range(unsubmitted):
+            backpressure.release()
         logger.error("[%s] batch error: %s", request_id, exc, exc_info=True)
         raise HTTPException(500, "Internal server error")

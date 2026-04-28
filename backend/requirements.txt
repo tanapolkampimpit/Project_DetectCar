@@ -1,6 +1,7 @@
 # ==========================================
 # ConnectCar API Dependencies
 # ==========================================
+--extra-index-url https://download.pytorch.org/whl/cpu
 
 # --- API & Server (FastAPI Ecosystem) ---
 fastapi>=0.100.0

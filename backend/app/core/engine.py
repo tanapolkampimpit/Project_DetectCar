@@ -131,55 +131,73 @@ class BatchInferenceEngine:
     def _run_batch_sync(self, batch: list[BatchItem]):
         t_start = time.monotonic()
         
-        tensors = torch.stack([item.tensor for item in batch])
-        if settings.USE_GPU:
-            tensors = tensors.pin_memory().to(settings.DEVICE, non_blocking=True).half()
-        else:
-            tensors = tensors.to(settings.DEVICE)
-            
-        imgs = [item.img for item in batch]
+        try:
+            batch = [item for item in batch if not item.future.cancelled()]
+            if not batch: return
 
-        def run_convnext_task():
-            with torch.inference_mode():
-                c_out, _ = self.convnext(tensors)
-                return torch.softmax(c_out, dim=1).float().cpu().numpy()
+            tensors = torch.stack([item.tensor for item in batch])
+            if settings.USE_GPU:
+                tensors = tensors.pin_memory().to(settings.DEVICE, non_blocking=True).half()
+            else:
+                tensors = tensors.to(settings.DEVICE)
+                
+            imgs = [item.img for item in batch]
 
-        def run_yolo_task():
-            if self.yolo is None: return None
-            try:
-                return self.yolo(imgs, verbose=False)
-            except Exception as e:
-                logger.warning("YOLO error: %s", e)
-                return None
+            def run_convnext_task():
+                with torch.inference_mode():
+                    c_out, _ = self.convnext(tensors)
+                    return torch.softmax(c_out, dim=1).float().cpu().numpy()
 
-        future_convnext = MODEL_THREAD_POOL.submit(run_convnext_task)
-        future_yolo     = MODEL_THREAD_POOL.submit(run_yolo_task)
+            def run_yolo_task():
+                if self.yolo is None: return None
+                try:
+                    # YOLO assumes BGR for numpy arrays, so we convert back from RGB
+                    imgs_bgr = [item.img[:, :, ::-1] for item in batch]
+                    return self.yolo(imgs_bgr, verbose=False)
+                except Exception as e:
+                    logger.warning("YOLO error: %s", e)
+                    return None
 
-        probs_np     = future_convnext.result()
-        yolo_results = future_yolo.result()
+            future_convnext = MODEL_THREAD_POOL.submit(run_convnext_task)
+            future_yolo     = MODEL_THREAD_POOL.submit(run_yolo_task)
 
-        t_end = time.monotonic()
-        logger.debug(f" Batch done | size={len(batch)} | total_inference_time={(t_end - t_start) * 1000}")
+            probs_np     = future_convnext.result()
+            yolo_results = future_yolo.result()
 
-        for i, item in enumerate(batch):
-            try:
-                result = build_result(
-                    item       = item,
-                    probs      = probs_np[i],
-                    yolo_out   = yolo_results[i] if yolo_results else None,
-                    total_ms   = (time.monotonic() - item.enqueue_at) * 1000,
-                    settings   = settings
-                )
-                logger.info(
-                    "[%s] Analyze done | expected='%s' → predicted='%s' | conf=%.1f | is_car=%s | match=%s | blur=%.1f | far=%s | %.0fms",
-                    item.request_id, item.expected_view, result["prediction"]["label"], result["prediction"]["confidence"], result["is_car"], result["match"], item.blur_score, result["quality"]["is_too_far"], result["time_ms"]
-                )
-                self.loop.call_soon_threadsafe(self._safe_set_future, item.future, result, None)
-            except Exception as exc:
+            t_end = time.monotonic()
+            logger.debug(f" Batch done | size={len(batch)} | total_inference_time={(t_end - t_start) * 1000}")
+
+            for i, item in enumerate(batch):
+                try:
+                    result = build_result(
+                        item       = item,
+                        probs      = probs_np[i],
+                        yolo_out   = yolo_results[i] if yolo_results else None,
+                        total_ms   = (time.monotonic() - item.enqueue_at) * 1000,
+                        settings   = settings
+                    )
+                    logger.info(
+                        "[%s] Analyze done | expected='%s' → predicted='%s' | conf=%.1f | is_car=%s | match=%s | blur=%.1f | far=%s | %.0fms",
+                        item.request_id, item.expected_view, result["prediction"]["label"], result["prediction"]["confidence"], result["is_car"], result["match"], item.blur_score, result["quality"]["is_too_far"], result["time_ms"]
+                    )
+                    self.loop.call_soon_threadsafe(self._safe_set_future, item.future, result, None)
+                except Exception as exc:
+                    self.loop.call_soon_threadsafe(self._safe_set_future, item.future, None, exc)
+
+            duration_ms = (time.monotonic() - t_start) * 1000
+            metrics.record_batch(len(batch), duration_ms / len(batch), 0)
+
+        except Exception as exc:
+            logger.error("Batch processing failed critically: %s", exc, exc_info=True)
+            for item in batch:
                 self.loop.call_soon_threadsafe(self._safe_set_future, item.future, None, exc)
+            
+            duration_ms = (time.monotonic() - t_start) * 1000
+            metrics.record_batch(len(batch), duration_ms / len(batch), len(batch))
 
-        duration_ms = (time.monotonic() - t_start) * 1000
-        metrics.record_batch(len(batch), duration_ms / len(batch), 0)
-
-        for _ in batch:
-            backpressure.release()
+        finally:
+            for item in batch:
+                backpressure.release()
+                item.img = None
+                item.tensor = None
+            del batch

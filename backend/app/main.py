@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    logger.info("Shutting down...")
+    logger.info("Shutting down")
     await engine.stop()
     if settings.USE_GPU and hasattr(app.state, "cleanup_task"):
         app.state.cleanup_task.cancel()
