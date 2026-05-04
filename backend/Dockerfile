@@ -1,31 +1,31 @@
-# Use an official Python runtime as a parent image
+# Step 1: เลือก Base Image ที่เบาที่สุด
 FROM python:3.10-slim
 
-# Set environment variables
+# Step 2: ตั้งค่า Environment ให้ Python ทำงานได้สมบูรณ์
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Set the working directory in the container
+# Step 3: กำหนดโฟลเดอร์ทำงาน
 WORKDIR /app
 
-# Install system dependencies
-# libgl1-mesa-glx and libglib2.0-0 are often needed for OpenCV/Ultralytics
+# Step 4: ติดตั้งระบบพื้นฐานที่จำเป็น (เพิ่ม libturbojpeg สำหรับความเร็วในการอ่านรูป)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
+    libturbojpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file into the container
+# Step 5: คัดลอกและติดตั้งไลบรารี (ใช้ --no-cache-dir เพื่อให้ Docker Image เบาลง)
 COPY requirements.txt .
-
-# Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code into the container
+# Step 6: คัดลอกโค้ดโปรเจกต์ทั้งหมด
 COPY . .
 
-# Expose the port the app runs on
+# Step 7: เปิด Port 8000
 EXPOSE 8000
 
-# Command to run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Step 8: รันเซิร์ฟเวอร์ด้วย Granian (Rust-based) แทน Uvicorn เพื่อความแรง
+# --interface asgi: บอกว่าใช้กับ FastAPI
+# --host 0.0.0.0: ให้คนภายนอกเข้าถึงได้
+CMD ["granian", "--interface", "asgi", "--host", "0.0.0.0", "--port", "8000", "app.main:app"]

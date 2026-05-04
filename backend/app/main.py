@@ -5,7 +5,8 @@ import torch
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
+from fastapi.responses import ORJSONResponse
+
 
 from app.core.config import settings
 from app.core.engine import BatchInferenceEngine
@@ -28,7 +29,7 @@ async def lifespan(app: FastAPI):
     logger.info("System Booting | device=%s", settings.DEVICE)
 
     convnext = MultiTaskConvNeXt().to(settings.DEVICE)
-    state_dict = torch.load(settings.MODEL_PATH, map_location=settings.DEVICE, weights_only=True)
+    state_dict = torch.load(settings.MODEL_PATH, map_location=settings.DEVICE, weights_only=False)
     convnext.load_state_dict(state_dict, strict=False)
     convnext.eval()
 
@@ -78,7 +79,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ConnectCar API",
-    lifespan=lifespan
+    lifespan=lifespan,
+    default_response_class=ORJSONResponse
 )
 
 app.add_middleware(
@@ -96,5 +98,4 @@ app.include_router(health.router, prefix="/api/v1")
 def read_root():
     return {"status": "Running AI on Server"}
 
-if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+

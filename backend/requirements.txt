@@ -1,13 +1,9 @@
-# ==========================================
-# ConnectCar API Dependencies
-# ==========================================
---extra-index-url https://download.pytorch.org/whl/cpu
-
-# --- API & Server (FastAPI Ecosystem) ---
-fastapi>=0.100.0
-uvicorn[standard]>=0.23.0
+# --- API & Server (High-Performance Rust-based) ---
+fastapi>=0.110.0
+granian[all]
 python-multipart
 pydantic-settings
+orjson
 
 # --- Deep Learning & AI Models ---
 torch>=2.0.0
@@ -17,10 +13,7 @@ ultralytics
 
 # --- Computer Vision & Image Processing ---
 opencv-python-headless
-Pillow
+PyTurboJPEG
 
 # --- Data Science & Utilities ---
 numpy
-pandas
-scikit-learn
-tqdm
