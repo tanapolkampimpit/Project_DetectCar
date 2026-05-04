@@ -9,20 +9,35 @@ LABELS = [
 ]
 
 INSURANCE_ANGLE_MAP = {
-    "Front":       ["Front", "Front-Left", "Front-Right"],
-    "Front-Left":  ["Front-Left", "Front", "Left"],
-    "Left":        ["Left", "Front-Left", "Back-Left"],
-    "Back-Left":   ["Back-Left", "Left", "Back"],
-    "Back":        ["Back", "Back-Left", "Back-Right"],
-    "Back-Right":  ["Back-Right", "Back", "Right"],
-    "Right":       ["Right", "Back-Right", "Front-Right"],
-    "Front-Right": ["Front-Right", "Right", "Front"],
+    "Front":       ["Front"],
+    "Front-Left":  ["Front-Left"],
+    "Left":        ["Left"],
+    "Back-Left":   ["Back-Left"],
+    "Back":        ["Back"],
+    "Back-Right":  ["Back-Right"],
+    "Right":       ["Right"],
+    "Front-Right": ["Front-Right"],
+}
+
+SWAP_MAP = {
+    "Front-Left":  "Front-Right",
+    "Front-Right": "Front-Left",
+    "Left":        "Right",
+    "Right":       "Left",
+    "Back-Left":   "Back-Right",
+    "Back-Right":  "Back-Left",
 }
 
 VEHICLE_KEYWORDS  = frozenset(["car", "truck", "bus", "suv", "van", "vehicle", "pickup"])
 
 def build_result(item, probs: list, yolo_out, total_ms: float, settings) -> dict:
-    results = [{"label": LABELS[i], "confidence": float(probs[i] * 100)} for i in range(8)]
+    results = []
+    for i in range(8):
+        orig_label = LABELS[i]
+        # สลับป้ายกำกับตาม SWAP_MAP
+        final_label = SWAP_MAP.get(orig_label, orig_label)
+        results.append({"label": final_label, "confidence": float(probs[i] * 100)})
+
     results.sort(key=lambda x: x["confidence"], reverse=True)
     best = results[0]
 

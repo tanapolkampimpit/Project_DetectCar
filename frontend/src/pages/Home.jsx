@@ -55,6 +55,22 @@ const ANGLES = [
     modelKey: 'Front-Right',
     tip: 'ยืนมุม 45° หน้า-ขวาของรถ ให้เห็นด้านหน้าและด้านข้าง',
   },
+  {
+    id: 'back-left',
+    label: 'มุมหลัง-ซ้าย 45°',
+    desc: 'ถ่ายมุมเฉียง 45° ด้านหลัง-ซ้าย',
+    icon: <span className="text-lg font-black">↙</span>,
+    modelKey: 'Back-Left',
+    tip: 'ยืนมุม 45° หลัง-ซ้ายของรถ ให้เห็นด้านหลังและด้านข้าง',
+  },
+  {
+    id: 'back-right',
+    label: 'มุมหลัง-ขวา 45°',
+    desc: 'ถ่ายมุมเฉียง 45° ด้านหลัง-ขวา',
+    icon: <span className="text-lg font-black">↘</span>,
+    modelKey: 'Back-Right',
+    tip: 'ยืนมุม 45° หลัง-ขวาของรถ ให้เห็นด้านหลังและด้านข้าง',
+  }
 ];
 
 const LABEL_TH = {
@@ -165,6 +181,7 @@ export default function Home() {
   const [screen, setScreen] = useState('checklist'); // 'checklist' | 'capture'
   const [activeAngle, setActiveAngle] = useState(null);
   const [verifiedAngles, setVerifiedAngles] = useState({});
+  const [duplicateImages, setDuplicateImages] = useState([]);
   const [capturedImage, setCapturedImage] = useState(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -307,12 +324,12 @@ export default function Home() {
   const handleBatchUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
-    
+
     setBatchLoading(true);
     try {
       const formData = new FormData();
       const unverifiedKeys = ANGLES.filter(a => !verifiedAngles[a.id]).map(a => a.modelKey);
-      
+
       files.forEach((file, index) => {
         formData.append('files', file);
         const expView = unverifiedKeys[index] || ANGLES[index % ANGLES.length].modelKey;
@@ -330,27 +347,57 @@ export default function Home() {
       }
 
       const data = await res.json();
-      
+
       if (data.status === 'success') {
         const newVerified = { ...verifiedAngles };
         let swappedCount = 0;
-        
+
+        const pendingImages = [];
+
         data.results.forEach((resItem, idx) => {
           if (resItem.needs_swap) swappedCount++;
-          
-          if (resItem.is_car) {
+
+          if (resItem.is_car && resItem.confidence > 55) {
+            const expectedModelKey = unverifiedKeys[idx] || ANGLES[idx % ANGLES.length].modelKey;
+            const expectedAngle = ANGLES.find(a => a.modelKey === expectedModelKey);
             const targetAngle = ANGLES.find(a => a.modelKey === resItem.final_assigned_view);
-            if (targetAngle && resItem.confidence > 55) {
-              const url = URL.createObjectURL(files[idx]);
-              newVerified[targetAngle.id] = {
-                image: url,
-                confidence: resItem.confidence,
-                quality: resItem.quality || {},
-              };
-            }
+            
+            pendingImages.push({
+              file: files[idx],
+              resItem,
+              targetAngle,
+              expectedAngle
+            });
           }
         });
-        
+
+        // จัดเรียงตามความมั่นใจ (confidence) เพื่อให้ AI ที่มั่นใจกว่าได้จองมุมนั้นก่อน
+        pendingImages.sort((a, b) => b.resItem.confidence - a.resItem.confidence);
+
+        const newDuplicates = [...duplicateImages];
+
+        pendingImages.forEach(item => {
+          let assignedAngle = item.targetAngle;
+          
+          if (assignedAngle && newVerified[assignedAngle.id]) {
+            // ถ้ามุมที่ AI ทายถูกจองไปแล้ว ให้นำไปเก็บใน "ผลรูปซ้ำ"
+            newDuplicates.push({
+              image: URL.createObjectURL(item.file),
+              label: assignedAngle.label,
+              confidence: item.resItem.confidence,
+            });
+          } else if (assignedAngle && !newVerified[assignedAngle.id]) {
+            const url = URL.createObjectURL(item.file);
+            newVerified[assignedAngle.id] = {
+              image: url,
+              confidence: item.resItem.confidence,
+              quality: item.resItem.quality || {},
+            };
+          }
+        });
+
+        setDuplicateImages(newDuplicates);
+
         setVerifiedAngles(newVerified);
         if (swappedCount > 0) {
           alert(`จัดเรียงสำเร็จ! มีการสลับมุมให้อัตโนมัติจำนวน ${swappedCount} รูป เนื่องจาก AI ตรวจพบว่าเป็นมุมอื่น`);
@@ -369,18 +416,18 @@ export default function Home() {
     return (
       <div className="max-w-[480px] w-full min-h-screen bg-[#f4f7fe] mx-auto flex flex-col items-center justify-center p-6 font-sans relative">
         <div className="absolute top-10 w-full px-6 opacity-10 pointer-events-none">
-           <FaCarSide className="text-[12rem] mx-auto" />
+          <FaCarSide className="text-[12rem] mx-auto" />
         </div>
 
         <div className="w-24 h-24 bg-green-500 rounded-[2rem] flex items-center justify-center text-white text-5xl mb-6 shadow-2xl shadow-green-500/40 z-10 animate-bounce">
           <FaShieldAlt />
         </div>
-        
+
         <h1 className="text-2xl font-extrabold text-gray-900 mb-3 z-10">ตรวจสภาพครบถ้วน!</h1>
         <p className="text-gray-500 text-center text-sm mb-12 z-10 leading-relaxed">
           AI ได้ตรวจสอบรูปภาพครบทุกมุมตามมาตรฐานบริษัทประกันภัยเรียบร้อยแล้ว
         </p>
-        
+
         <button
           onClick={() => navigate('/summarie', { state: { verifiedAngles } })}
           className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-base shadow-xl shadow-blue-500/30 hover:bg-blue-700 active:scale-[0.98] transition-all mb-5 z-10"
@@ -406,7 +453,39 @@ export default function Home() {
     const topPred = result?.prediction;
 
     return (
-      <div className="max-w-[480px] w-full min-h-screen bg-gray-950 mx-auto flex flex-col pb-[80px] font-sans">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div className="max-w-[480px] w-full min-h-screen bg-gray-950 mx-auto flex flex-col pb-[80px] font-sans">
         <input ref={fileInputRef} type="file" className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
         <input ref={galleryInputRef} type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
 
@@ -471,7 +550,7 @@ export default function Home() {
 
         <div className="flex flex-col gap-2.5 p-4 mt-1">
           {result?.error && (
-            <StatusCard color="red" icon={<FaTimes />} title="เชื่อมต่อ backend ไม่ได้" desc={result.message} />
+            <StatusCard color="red" icon={<FaTimes />} title="เกิดข้อผิดพลาด ในการทำนาย" desc={result.message} />
           )}
 
           {notCar && (
@@ -579,6 +658,32 @@ export default function Home() {
         </div>
       )}
 
+      {duplicateImages.length > 0 && (
+        <div className="mx-4 mt-4 p-4 bg-orange-50 rounded-3xl border border-orange-200">
+          <h2 className="text-sm font-bold text-orange-800 mb-3 flex items-center gap-2">
+            <span className="text-lg">⚠️</span> ผลรูปซ้ำที่ AI ทายตรงกัน ({duplicateImages.length} รูป)
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            {duplicateImages.map((dup, idx) => (
+              <div key={idx} className="bg-white p-2 rounded-2xl border border-orange-100 shadow-sm relative overflow-hidden">
+                <img src={dup.image} alt="dup" className="w-full h-24 object-cover rounded-xl mb-2" />
+                <div className="absolute top-3 right-3 bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold shadow-md">
+                  ทายซ้ำ
+                </div>
+                <p className="text-[11px] font-bold text-gray-800">AI ทายว่า: <span className="text-orange-600">{dup.label}</span></p>
+                <p className="text-[10px] text-gray-500 mt-0.5">ความมั่นใจ: {Math.round(dup.confidence)}%</p>
+              </div>
+            ))}
+          </div>
+          <button 
+             onClick={() => setDuplicateImages([])}
+             className="w-full mt-3 py-2 bg-orange-100 text-orange-700 text-xs font-bold rounded-xl hover:bg-orange-200 transition-colors"
+          >
+             ลบรูปซ้ำทั้งหมด
+          </button>
+        </div>
+      )}
+
       <Fotter />
     </div>
   );
@@ -586,8 +691,8 @@ export default function Home() {
 
 function StatusCard({ color, icon, title, desc }) {
   const colors = {
-    green:  'bg-green-50 border-green-100 text-green-700 bg-green-100',
-    red:    'bg-red-50 border-red-100 text-red-700 bg-red-100',
+    green: 'bg-green-50 border-green-100 text-green-700 bg-green-100',
+    red: 'bg-red-50 border-red-100 text-red-700 bg-red-100',
     yellow: 'bg-yellow-50 border-yellow-100 text-yellow-700 bg-yellow-100',
   };
   const [bg, border, text, iconBg] = colors[color]?.split(' ') ?? [];

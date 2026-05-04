@@ -2,18 +2,20 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { FaCheck, FaShieldAlt, FaPrint, FaArrowLeft } from 'react-icons/fa';
 
 const ANGLES = [
-  { id: 'front', label: 'ด้านหน้าตรง' },
-  { id: 'rear', label: 'ด้านหลังตรง' },
-  { id: 'left', label: 'ด้านข้างซ้าย' },
-  { id: 'right', label: 'ด้านข้างขวา' },
-  { id: 'front-left', label: 'มุมหน้า-ซ้าย 45°' },
-  { id: 'front-right', label: 'มุมหน้า-ขวา 45°' },
+    { id: 'front', label: 'ด้านหน้าตรง' },
+    { id: 'rear', label: 'ด้านหลังตรง' },
+    { id: 'left', label: 'ด้านข้างซ้าย' },
+    { id: 'right', label: 'ด้านข้างขวา' },
+    { id: 'back-left', label: 'มุมหลัง-ซ้าย 45°' },
+    { id: 'back-right', label: 'มุมหลัง-ขวา 45°' },
+    { id: 'front-left', label: 'มุมหน้า-ซ้าย 45°' },
+    { id: 'front-right', label: 'มุมหน้า-ขวา 45°' },
 ];
 
 export default function Summarie() {
     const location = useLocation();
     const navigate = useNavigate();
-    
+
     const verifiedAngles = location.state?.verifiedAngles || {};
     const totalAngles = ANGLES.length;
     const verifiedCount = Object.keys(verifiedAngles).length;

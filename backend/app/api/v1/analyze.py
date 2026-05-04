@@ -131,20 +131,36 @@ async def analyze_batch(
     items_submitted = 0
 
     try:
-        for i, (file, exp_view) in enumerate(zip(files, expected_views)):
+        # 1. Decode and preprocess all images concurrently
+        async def prepare_item(i, file, exp_view):
             content = await file.read()
             decoded = await run_in_threadpool(decode_and_analyze_image, content)
-            
             if decoded is None:
-                raise HTTPException(400, f"รูปแบบไฟล์ภาพไม่ถูกต้อง: {file.filename}")
-
+                raise ValueError(f"รูปแบบไฟล์ภาพไม่ถูกต้อง: {file.filename}")
             img, blur_score = decoded
-            tensor = preprocess(img)
-            loop = asyncio.get_running_loop()
-            future = loop.create_future()
+            # run_in_threadpool for preprocess if it's heavy, or just run it directly
+            tensor = await run_in_threadpool(preprocess, img)
+            return i, exp_view, img, blur_score, tensor
 
+        prepare_tasks = [prepare_item(i, f, ev) for i, (f, ev) in enumerate(zip(files, expected_views))]
+        prepared_results = await asyncio.gather(*prepare_tasks, return_exceptions=True)
+
+        loop = asyncio.get_running_loop()
+        
+        # 2. Submit to queue in a tight loop
+        for i, res in enumerate(prepared_results):
+            if isinstance(res, Exception):
+                # If preparation failed, we create a dummy future that's already failed
+                future = loop.create_future()
+                future.set_exception(HTTPException(400, str(res)))
+                futures.append(future)
+                items_submitted += 1
+                continue
+
+            idx, exp_view, img, blur_score, tensor = res
+            future = loop.create_future()
             item = BatchItem(
-                request_id=f"{request_id}_{i}",
+                request_id=f"{request_id}_{idx}",
                 expected_view=exp_view,
                 img=img,
                 tensor=tensor,

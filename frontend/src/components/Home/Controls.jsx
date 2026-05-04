@@ -15,13 +15,13 @@ const LABEL_MAP = {
 
 const ANGLE_MAPPING = {
   'front': 'Front',
-  'right': 'Right',
   'rear': 'Back',
   'left': 'Left',
-  'Front-Left': 'Front-Left',
-  'Front-Right': 'Front-Right',
-  'Back-Left': 'Back-Left',
-  'Back-Right': 'Back-Right'
+  'right': 'Right',
+  'front-left': 'Front-Left',
+  'front-right': 'Front-Right',
+  'back-left': 'Back-Left',
+  'back-right': 'Back-Right',
 };
 
 export default function ResultCard({
