@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import logging
+from app.core.config import settings
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from app.core.engine import backpressure, BatchItem, BatchInferenceEngine
@@ -98,10 +99,10 @@ async def analyze_batch(
 ):
     request_id = uuid.uuid4().hex[:8]
 
-    if len(files) > 15:
+    if len(files) > settings.BATCH_MAX_SIZE:
         raise HTTPException(
             status_code=400, 
-            detail=f"ส่งรูปภาพได้สูงสุด 15 รูปต่อ 1 ครั้ง (คุณส่งมา {len(files)} รูป)"
+            detail=f"ส่งรูปภาพได้สูงสุด {settings.BATCH_MAX_SIZE} รูปต่อ 1 ครั้ง (คุณส่งมา {len(files)} รูป)"
         )
 
     if len(expected_views) == 1 and "," in expected_views[0]:
