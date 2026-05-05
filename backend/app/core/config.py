@@ -7,9 +7,9 @@ class Settings(BaseSettings):
     MODEL_PATH: str = "./ModelsAi/Models_1.2.pth" 
     YOLO_CLS_PATH: str = "./ModelsAi/yolov8n.pt"
     
-    BATCH_MAX_SIZE: int = 16
+    BATCH_MAX_SIZE: int = 64
     BATCH_MAX_WAIT: float = 0.020
-    NUM_BATCH_WORKERS: int = 3
+    NUM_BATCH_WORKERS: int = 4
     MAX_QUEUE_DEPTH: int = 200
     MAX_FILE_BYTES: int = 25 * 1024 * 1024
     BLUR_THRESHOLD: float = 50.0
