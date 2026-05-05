@@ -121,9 +121,8 @@ export default function ResultCard({
   return (
     <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden animate-slide-up">
       {/* Status bar */}
-      <div className={`px-5 py-3.5 flex items-center justify-between ${
-        isCorrectAngle ? 'bg-green-500' : 'bg-orange-400'
-      }`}>
+      <div className={`px-5 py-3.5 flex items-center justify-between ${isCorrectAngle ? 'bg-green-500' : 'bg-orange-400'
+        }`}>
         <div className="flex items-center gap-2 text-white">
           <span className="font-bold text-sm">
             {isCorrectAngle ? `✓ ตรงกับมุม ${activeAngle.label}` : `⚠ ตรวจพบมุมอื่น`}
@@ -147,11 +146,10 @@ export default function ResultCard({
               <button
                 key={res.label}
                 onClick={() => setSelectedResult(res)}
-                className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all text-left ${
-                  isSelected
+                className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all text-left ${isSelected
                     ? 'border-blue-500 bg-blue-50'
                     : 'border-gray-100 bg-gray-50 hover:border-gray-200'
-                }`}
+                  }`}
               >
                 {/* Confidence bar */}
                 <div className="flex-1 min-w-0">
@@ -159,25 +157,22 @@ export default function ResultCard({
                     <span className={`text-sm font-bold truncate ${isSelected ? 'text-blue-700' : 'text-gray-700'}`}>
                       {LABEL_MAP[res.label] || res.label}
                     </span>
-                    <span className={`text-xs font-mono font-bold ml-2 flex-shrink-0 ${
-                      confInt > 70 ? 'text-green-600' : confInt > 40 ? 'text-orange-500' : 'text-red-500'
-                    }`}>{confInt}%</span>
+                    <span className={`text-xs font-mono font-bold ml-2 flex-shrink-0 ${confInt > 70 ? 'text-green-600' : confInt > 40 ? 'text-orange-500' : 'text-red-500'
+                      }`}>{confInt}%</span>
                   </div>
                   <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all duration-700 ${
-                        isSelected ? 'bg-blue-500' :
-                        confInt > 70 ? 'bg-green-400' :
-                        confInt > 40 ? 'bg-orange-400' : 'bg-red-400'
-                      }`}
+                      className={`h-full rounded-full transition-all duration-200 ${isSelected ? 'bg-blue-500' :
+                          confInt > 70 ? 'bg-green-400' :
+                            confInt > 40 ? 'bg-orange-400' : 'bg-red-400'
+                        }`}
                       style={{ width: `${confInt}%` }}
                     />
                   </div>
                 </div>
                 {/* Checkmark */}
-                <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-xs transition-all ${
-                  isSelected ? 'bg-blue-500 text-white' : 'bg-gray-200 text-transparent'
-                }`}>
+                <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-xs transition-all ${isSelected ? 'bg-blue-500 text-white' : 'bg-gray-200 text-transparent'
+                  }`}>
                   <FaCheck />
                 </div>
               </button>
