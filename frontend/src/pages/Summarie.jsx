@@ -6,10 +6,25 @@ const ANGLES = [
     { id: 'rear', label: 'ด้านหลังตรง' },
     { id: 'left', label: 'ด้านข้างซ้าย' },
     { id: 'right', label: 'ด้านข้างขวา' },
-    { id: 'back-left', label: 'มุมหลัง-ซ้าย 45°' },
-    { id: 'back-right', label: 'มุมหลัง-ขวา 45°' },
-    { id: 'front-left', label: 'มุมหน้า-ซ้าย 45°' },
-    { id: 'front-right', label: 'มุมหน้า-ขวา 45°' },
+    { id: 'roof', label: 'หลังคารถยนต์' },
+    { id: 'interior', label: 'ภายใน/อุปกรณ์ตกแต่ง' },
+    { id: 'spare_tire', label: 'ยางอะไหล่' },
+    { id: 'chassis', label: 'เลขตัวถังรถยนต์' },
+    { id: 'accessories', label: 'กรณีมีอุปกรณ์ตกแต่ง เช่นล้อแม็กซ์ เครื่องเสียง' },
+    { id: 'dashcam', label: 'กล้องติดหน้ารถ' },
+    { id: 'front-right', label: 'เฉียงหน้าด้านขวา' },
+    { id: 'front-left', label: 'เฉียงหน้าด้านซ้าย' },
+    { id: 'back-right', label: 'เฉียงหลังด้านขวา' },
+    { id: 'back-left', label: 'เฉียงหลังด้านซ้าย' },
+    { id: 'odometer', label: 'จอเลขไมล์' },
+    { id: 'tax_sticker', label: 'แผ่นป้ายภาษี' },
+    { id: 'registration_doc', label: 'รายการจดทะเบียน' },
+    { id: 'engine_compartment', label: 'ห้องเครื่องยนต์' },
+    { id: 'tire_fl', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหน้าซ้าย' },
+    { id: 'tire_fr', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหน้าขวา' },
+    { id: 'tire_bl', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหลังซ้าย' },
+    { id: 'tire_br', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหลังขวา' },
+    { id: 'others', label: 'อื่นๆ (MTPhoto)' }
 ];
 
 export default function Summarie() {
@@ -79,6 +94,16 @@ export default function Summarie() {
                                                 <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
                                                 <p className="text-[10px] text-gray-500 font-medium">AI มั่นใจ {Math.round(v.confidence || 0)}%</p>
                                             </div>
+                                            {v.class_details && (
+                                                <div className="flex items-start gap-1 mt-1.5">
+                                                    <span className="text-[9px] font-bold bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 flex-shrink-0">
+                                                        {v.class_details.group}
+                                                    </span>
+                                                    <span className="text-[10px] text-gray-600 line-clamp-1">
+                                                        {v.class_details.th_name}
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>

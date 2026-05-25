@@ -1,10 +1,12 @@
 import uuid
 import asyncio
+from typing import List
 import logging
+import torch
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from app.core.engine import backpressure, BatchItem, BatchInferenceEngine
-from app.services.preprocessor import decode_and_analyze_image, preprocess
+from app.services.preprocessor import decode_and_analyze_image, preprocess, prepare_image_for_inference
 from app.services.analyzer import INSURANCE_ANGLE_MAP, LABELS, process_batch_results
 from app.core.config import settings
 
@@ -33,11 +35,12 @@ async def analyze(
     handed_over_to_engine = False  
 
     try:
+        max_file_bytes = getattr(settings, "MAX_FILE_BYTES", 25 * 1024 * 1024)
         content_bytes = bytearray()
         while chunk := await file.read(1024 * 1024):
             content_bytes.extend(chunk)
-            if len(content_bytes) > settings.MAX_FILE_BYTES:
-                raise HTTPException(413, "File too large (>10MB)")
+            if len(content_bytes) > max_file_bytes:
+                raise HTTPException(413, f"File too large (>{max_file_bytes / (1024 * 1024):.0f}MB)")
 
         content = bytes(content_bytes)
         del content_bytes
@@ -49,7 +52,26 @@ async def analyze(
             raise HTTPException(400, "Invalid image format")
 
         img, blur_score = decoded
+        
+        # --- ตาม Flow: เช็ค Blur ก่อนเข้า Queue ---
+        if blur_score < settings.BLUR_THRESHOLD:
+            logger.info("[%s] rejected early | blur_score=%.1f (too blurry)", request_id, blur_score)
+            return {
+                "status": "error",
+                "error": "image_too_blurry",
+                "message": "ภาพไม่ชัดเจน กรุณาถ่ายใหม่",
+                "quality": {
+                    "is_blurry": True,
+                    "blur_score": round(blur_score, 2)
+                }
+            }
+
         tensor = preprocess(img)
+        if settings.USE_GPU and torch.cuda.is_available():
+            try:
+                tensor = tensor.pin_memory()
+            except Exception:
+                pass
 
         loop   = asyncio.get_running_loop()
         future = loop.create_future()
@@ -90,22 +112,31 @@ async def analyze(
         raise HTTPException(500, "Internal server error")
 
 
+
 @router.post("/analyze_batch")
 async def analyze_batch(
     request: Request,
-    files: list[UploadFile] = File(...),
-    expected_views: list[str] = Form(...),
+    files: List[UploadFile] = File(...),
+    expected_views: str = Form(..., description="ระบุมุมที่ต้องการตรวจสอบ คั่นด้วยเครื่องหมายจุลภาค (,) เช่น Front,Back"),
 ):
     request_id = uuid.uuid4().hex[:8]
 
-    if len(files) > 15:
+    if len(files) > 30:
         raise HTTPException(
             status_code=400, 
-            detail=f"ส่งรูปภาพได้สูงสุด 15 รูปต่อ 1 ครั้ง (คุณส่งมา {len(files)} รูป)"
+            detail=f"ส่งรูปภาพได้สูงสุด 30 รูปต่อ 1 ครั้ง (คุณส่งมา {len(files)} รูป)"
         )
 
-    if len(expected_views) == 1 and "," in expected_views[0]:
-        expected_views = [v.strip() for v in expected_views[0].split(",")]
+    # Parse comma-separated string into a list
+    expected_views = [v.strip() for v in expected_views.split(",")]
+
+    # Fail-Fast: Validate all expected views early
+    for ev in expected_views:
+        if ev not in INSURANCE_ANGLE_MAP:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "invalid_expected_view", "message": f"'{ev}' is not a valid view", "valid_values": LABELS}
+            )
 
     if len(files) != len(expected_views):
         logger.warning("[%s] Batch length mismatch", request_id)
@@ -117,6 +148,13 @@ async def analyze_batch(
     for f in files:
         if not f.content_type.startswith("image/"):
             raise HTTPException(400, f"ไฟล์ {f.filename} ไม่ใช่รูปภาพ")
+        # Validate file extension to prevent content-type spoofing
+        ext = f.filename.split('.')[-1].lower() if '.' in f.filename else ''
+        if ext not in ['jpg', 'jpeg', 'png', 'webp']:
+            raise HTTPException(
+                status_code=400,
+                detail=f"ไฟล์ {f.filename} มีนามสกุลไม่ถูกต้อง. ยอมรับเฉพาะ .jpg, .jpeg, .png, .webp"
+            )
 
     acquired_count = 0
     for _ in files:
@@ -128,36 +166,75 @@ async def analyze_batch(
 
     engine: BatchInferenceEngine = request.app.state.engine
     futures = []
-    items_submitted = 0
+    items_handled = 0  # Track how many items we have processed (sent to engine OR manually released)
+    loop = asyncio.get_running_loop()
 
     try:
         # 1. Decode and preprocess all images concurrently
         async def prepare_item(i, file, exp_view):
-            content = await file.read()
-            decoded = await run_in_threadpool(decode_and_analyze_image, content)
-            if decoded is None:
+            # Stream read chunk-by-chunk to prevent memory exhaustion (DoS / OOM)
+            max_file_bytes = getattr(settings, "MAX_FILE_BYTES", 25 * 1024 * 1024)
+            content_bytes = bytearray()
+            while chunk := await file.read(1024 * 1024):
+                content_bytes.extend(chunk)
+                if len(content_bytes) > max_file_bytes:
+                    max_mb = max_file_bytes / (1024 * 1024)
+                    raise ValueError(f"ไฟล์ {file.filename} มีขนาดใหญ่เกินไป (>{max_mb:.0f}MB)")
+            
+            content = bytes(content_bytes)
+            del content_bytes
+
+            # Combine decode and preprocess into ONE threadpool call
+            res = await run_in_threadpool(prepare_image_for_inference, content)
+            if res is None:
                 raise ValueError(f"รูปแบบไฟล์ภาพไม่ถูกต้อง: {file.filename}")
-            img, blur_score = decoded
-            # run_in_threadpool for preprocess if it's heavy, or just run it directly
-            tensor = await run_in_threadpool(preprocess, img)
-            return i, exp_view, img, blur_score, tensor
+            img, blur_score, tensor = res
+
+            # --- ตาม Flow: เช็ค Blur ใน Batch ---
+            if blur_score < settings.BLUR_THRESHOLD:
+                 # ถ้าเบลอ ให้เซ็ต Result ทันที ไม่ต้องรอคิว GPU
+                 future = loop.create_future()
+                 future.set_result({
+                     "status": "error",
+                     "error": "image_too_blurry",
+                     "message": f"ภาพ {file.filename} ไม่ชัดเจน",
+                     "quality": {"is_blurry": True, "blur_score": round(blur_score, 2)},
+                     "prediction": {"label": "Unknown", "confidence": 0.0},
+                     "is_car": False,
+                     "match": False,
+                     "time_ms": 0.0
+                 })
+                 return i, exp_view, None, blur_score, None, future
+
+            return i, exp_view, img, blur_score, tensor, None
 
         prepare_tasks = [prepare_item(i, f, ev) for i, (f, ev) in enumerate(zip(files, expected_views))]
         prepared_results = await asyncio.gather(*prepare_tasks, return_exceptions=True)
-
-        loop = asyncio.get_running_loop()
         
         # 2. Submit to queue in a tight loop
         for i, res in enumerate(prepared_results):
             if isinstance(res, Exception):
                 # If preparation failed, we create a dummy future that's already failed
+                backpressure.release() 
                 future = loop.create_future()
-                future.set_exception(HTTPException(400, str(res)))
+                # Secure error mapping to prevent internal details leakage
+                if isinstance(res, ValueError):
+                    future.set_exception(HTTPException(400, str(res)))
+                else:
+                    logger.error("Error preparing file %s: %s", files[i].filename, res, exc_info=True)
+                    future.set_exception(HTTPException(400, f"เกิดข้อผิดพลาดในการประมวลผลรูปภาพ {files[i].filename}"))
                 futures.append(future)
-                items_submitted += 1
+                items_handled += 1
                 continue
 
-            idx, exp_view, img, blur_score, tensor = res
+            idx, exp_view, img, blur_score, tensor, early_future = res
+            
+            if early_future:
+                backpressure.release() 
+                futures.append(early_future)
+                items_handled += 1
+                continue
+
             future = loop.create_future()
             item = BatchItem(
                 request_id=f"{request_id}_{idx}",
@@ -169,7 +246,7 @@ async def analyze_batch(
             )
             engine.submit_nowait(item)
             futures.append(future)
-            items_submitted += 1
+            items_handled += 1
 
         try:
             results = await asyncio.wait_for(asyncio.gather(*futures, return_exceptions=True), timeout=30.0)
@@ -188,13 +265,13 @@ async def analyze_batch(
         return response_data
 
     except HTTPException as exc:
-        unsubmitted = len(files) - items_submitted
-        for _ in range(unsubmitted):
+        still_holding = len(files) - items_handled
+        for _ in range(still_holding):
             backpressure.release()
         raise exc
     except Exception as exc:
-        unsubmitted = len(files) - items_submitted
-        for _ in range(unsubmitted):
+        still_holding = len(files) - items_handled
+        for _ in range(still_holding):
             backpressure.release()
         logger.error("[%s] batch error: %s", request_id, exc, exc_info=True)
         raise HTTPException(500, "Internal server error")

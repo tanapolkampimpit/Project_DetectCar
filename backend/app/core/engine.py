@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from fastapi.concurrency import run_in_threadpool
 from app.core.config import settings
-from app.services.analyzer import build_result
+from app.services.analyzer import build_result, LABELS, EXTERIOR_LABELS, THAI_TO_EN_CLASS_MAP
 
 logger = logging.getLogger("analyze_api")
 
@@ -74,10 +74,10 @@ metrics = TelemetryTracker()
 MODEL_THREAD_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=6)
 
 class BatchInferenceEngine:
-    def __init__(self, convnext, yolo, loop: asyncio.AbstractEventLoop, max_queue: int):
-        self.convnext = convnext
-        self.yolo     = yolo
-        self.loop     = loop
+    def __init__(self, convnext, yolo_gen, loop: asyncio.AbstractEventLoop, max_queue: int):
+        self.convnext  = convnext
+        self.yolo_gen  = yolo_gen
+        self.loop      = loop
         self._queue: asyncio.Queue[BatchItem] = asyncio.Queue(maxsize=max_queue)
         self._tasks: list[asyncio.Task]       = []
 
@@ -121,83 +121,234 @@ class BatchInferenceEngine:
                     break  
 
             logger.debug("[Worker-%d] Dispatching batch | size=%d", worker_id, len(batch))
-            await run_in_threadpool(self._run_batch_sync, batch)
+            await self.loop.run_in_executor(MODEL_THREAD_POOL, self._run_batch_sync, batch)
 
     def _safe_set_future(self, future: asyncio.Future, result=None, exc=None):
         if not future.done():
-            if exc: future.set_exception(exc)
-            else:   future.set_result(result)
+            try:
+                if exc: future.set_exception(exc)
+                else:   future.set_result(result)
+            except asyncio.InvalidStateError:
+                logger.debug("Future was already completed (likely timeout/cancellation)")
 
     def _run_batch_sync(self, batch: list[BatchItem]):
         t_start = time.monotonic()
-        
-        try:
-            batch = [item for item in batch if not item.future.cancelled()]
-            if not batch: return
 
+        try:
+            # ============================================
+            # FILTER CANCELLED
+            # ============================================
+            batch = [item for item in batch if not item.future.cancelled()]
+            if not batch:
+                return
+
+            # ============================================
+            # BUILD BATCH TENSOR
+            # ============================================
             tensors = torch.stack([item.tensor for item in batch])
+
             if settings.USE_GPU:
-                tensors = tensors.pin_memory().to(settings.DEVICE, non_blocking=True).half()
+                # Dynamic check: Only cast to half precision if the model is actually loaded in FP16
+                is_half = next(self.convnext.parameters()).dtype == torch.float16
+                if is_half:
+                    tensors = tensors.to(
+                        settings.DEVICE,
+                        non_blocking=True
+                    ).half()
+                else:
+                    tensors = tensors.to(
+                        settings.DEVICE,
+                        non_blocking=True
+                    )
             else:
                 tensors = tensors.to(settings.DEVICE)
-                
-            imgs = [item.img for item in batch]
 
-            def run_convnext_task():
-                with torch.inference_mode():
-                    c_out, _ = self.convnext(tensors)
-                    return torch.softmax(c_out, dim=1).float().cpu().numpy()
+            # ============================================
+            # YOLO GATEKEEPER
+            # ============================================
+            yolo_gen_results = None
 
-            def run_yolo_task():
-                if self.yolo is None: return None
+            if self.yolo_gen is not None:
                 try:
-                    # YOLO assumes BGR for numpy arrays, so we convert back from RGB
                     imgs_bgr = [item.img[:, :, ::-1] for item in batch]
-                    return self.yolo(imgs_bgr, verbose=False)
+
+                    with torch.inference_mode():
+                        yolo_gen_results = self.yolo_gen(
+                            imgs_bgr,
+                            verbose=False,
+                            device=settings.DEVICE
+                        )
+
                 except Exception as e:
-                    logger.warning("YOLO error: %s", e)
-                    return None
+                    logger.warning(
+                        "YOLO gatekeeper failed: %s",
+                        e
+                    )
 
-            future_convnext = MODEL_THREAD_POOL.submit(run_convnext_task)
-            future_yolo     = MODEL_THREAD_POOL.submit(run_yolo_task)
+            # ============================================
+            # DEFAULT PROBS
+            # ============================================
+            probs_np = np.zeros(
+                (len(batch), len(LABELS)),
+                dtype=np.float32
+            )
 
-            probs_np     = future_convnext.result()
-            yolo_results = future_yolo.result()
+            # ============================================
+            # CONVNEXT CLASSIFICATION (Gated by YOLO)
+            # ============================================
+            
+            cnn_indices = []
+            if yolo_gen_results is not None:
+                for idx, yolo_out in enumerate(yolo_gen_results):
+                    item = batch[idx]
+                    needs_cnn = False
+                    if hasattr(yolo_out, "probs") and yolo_out.probs is not None:
+                        # Classification model top-1
+                        top_conf_idx = int(yolo_out.probs.top1)
+                        class_name = yolo_out.names[top_conf_idx]
+                        mapped_name = THAI_TO_EN_CLASS_MAP.get(class_name, class_name)
+                        if mapped_name.lower() == "exterior":
+                            needs_cnn = True
+                    elif hasattr(yolo_out, "boxes") and yolo_out.boxes is not None and len(yolo_out.boxes.cls) > 0:
+                        # Detection model top confidence
+                        top_conf_idx = int(yolo_out.boxes.cls[0])
+                        class_name = yolo_out.names[top_conf_idx]
+                        mapped_name = THAI_TO_EN_CLASS_MAP.get(class_name, class_name)
+                        if mapped_name.lower() == "exterior":
+                            needs_cnn = True
+                            
+                    if needs_cnn:
+                        cnn_indices.append(idx)
+            else:
+                for idx, item in enumerate(batch):
+                    if item.expected_view in EXTERIOR_LABELS:
+                        cnn_indices.append(idx)
 
-            t_end = time.monotonic()
-            logger.debug(f" Batch done | size={len(batch)} | total_inference_time={(t_end - t_start) * 1000}")
+            if len(cnn_indices) > 0:
+                cnn_tensors = tensors[cnn_indices]
+                
+                with torch.inference_mode():
+                    if settings.USE_GPU:
+                        with torch.amp.autocast("cuda"):
+                            logits = self.convnext(cnn_tensors)
+                    else:
+                        logits = self.convnext(cnn_tensors)
 
+                    probs_all = torch.softmax(
+                        logits.float(),
+                        dim=1
+                    ).cpu().numpy()
+
+                for cnn_i, batch_idx in enumerate(cnn_indices):
+                    p = probs_all[cnn_i]
+                    mapped = np.zeros(len(LABELS), dtype=np.float32)
+
+                    mapped[0] = p[0]  # Front
+                    mapped[1] = p[6]  # Front Left
+                    mapped[2] = p[2]  # Left
+                    mapped[3] = p[8]  # Back Left
+                    mapped[4] = p[1]  # Back
+                    mapped[5] = p[7]  # Back Right
+                    mapped[6] = p[3]  # Right
+                    mapped[7] = p[5]  # Front Right
+
+                    probs_np[batch_idx] = mapped
+
+            # ============================================
+            # BUILD RESULTS
+            # ============================================
             for i, item in enumerate(batch):
+
                 try:
                     result = build_result(
-                        item       = item,
-                        probs      = probs_np[i],
-                        yolo_out   = yolo_results[i] if yolo_results else None,
-                        total_ms   = (time.monotonic() - item.enqueue_at) * 1000,
-                        settings   = settings
+                        item=item,
+                        probs=probs_np[i],
+                        yolo_gen_out=(
+                            yolo_gen_results[i]
+                            if yolo_gen_results is not None
+                            else None
+                        ),
+                        total_ms=(
+                            time.monotonic() - item.enqueue_at
+                        ) * 1000,
+                        settings=settings
                     )
-                    logger.info(
-                        "[%s] Analyze done | expected='%s' → predicted='%s' | conf=%.1f | is_car=%s | match=%s | blur=%.1f | far=%s | %.0fms",
-                        item.request_id, item.expected_view, result["prediction"]["label"], result["prediction"]["confidence"], result["is_car"], result["match"], item.blur_score, result["quality"]["is_too_far"], result["time_ms"]
-                    )
-                    self.loop.call_soon_threadsafe(self._safe_set_future, item.future, result, None)
-                except Exception as exc:
-                    self.loop.call_soon_threadsafe(self._safe_set_future, item.future, None, exc)
 
-            duration_ms = (time.monotonic() - t_start) * 1000
-            metrics.record_batch(len(batch), duration_ms / len(batch), 0)
+                    logger.info(
+                        "[%s] done | expected='%s' → pred='%s' | conf=%.1f | car=%s | match=%s | blur=%.1f | far=%s | %.0fms",
+                        item.request_id,
+                        item.expected_view,
+                        result["prediction"]["label"],
+                        result["prediction"]["confidence"],
+                        result["is_car"],
+                        result["match"],
+                        item.blur_score,
+                        result["quality"]["is_too_far"],
+                        result["time_ms"]
+                    )
+
+                    self.loop.call_soon_threadsafe(
+                        self._safe_set_future,
+                        item.future,
+                        result,
+                        None
+                    )
+
+                except Exception as exc:
+
+                    self.loop.call_soon_threadsafe(
+                        self._safe_set_future,
+                        item.future,
+                        None,
+                        exc
+                    )
+
+            # ============================================
+            # METRICS
+            # ============================================
+            duration_ms = (
+                time.monotonic() - t_start
+            ) * 1000
+
+            metrics.record_batch(
+                len(batch),
+                duration_ms / len(batch),
+                0
+            )
 
         except Exception as exc:
-            logger.error("Batch processing failed critically: %s", exc, exc_info=True)
+
+            logger.error(
+                "Critical batch failure: %s",
+                exc,
+                exc_info=True
+            )
+
             for item in batch:
-                self.loop.call_soon_threadsafe(self._safe_set_future, item.future, None, exc)
-            
-            duration_ms = (time.monotonic() - t_start) * 1000
-            metrics.record_batch(len(batch), duration_ms / len(batch), len(batch))
+
+                self.loop.call_soon_threadsafe(
+                    self._safe_set_future,
+                    item.future,
+                    None,
+                    exc
+                )
+
+            duration_ms = (
+                time.monotonic() - t_start
+            ) * 1000
+
+            metrics.record_batch(
+                len(batch),
+                duration_ms / len(batch),
+                len(batch)
+            )
 
         finally:
+
             for item in batch:
                 backpressure.release()
+
                 item.img = None
                 item.tensor = None
-            del batch
+
+            del batch

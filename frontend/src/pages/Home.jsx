@@ -1,76 +1,36 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaCarSide, FaCheck, FaImage, FaTimes, FaRedo, FaShieldAlt } from 'react-icons/fa';
-import { MdDirectionsCar, MdOutlineDirectionsCar, MdOutlinePhotoCamera } from 'react-icons/md';
+import { FaCarSide, FaCheck, FaImage, FaTimes, FaRedo, FaShieldAlt, FaIdCard, FaFileAlt, FaPlus, FaTools } from 'react-icons/fa';
+import { MdDirectionsCar, MdOutlineDirectionsCar, MdOutlinePhotoCamera, MdSettingsInputComponent, MdQrCodeScanner } from 'react-icons/md';
+import { GiCarSeat, GiCarWheel } from 'react-icons/gi';
 import { TbCameraRotate } from 'react-icons/tb';
 import Fotter from '../components/Layout/Fotter';
 
-// ─── Insurance-required angles (6 มุม ตามมาตรฐานประกันภัย) ────────────────
+// ─── Insurance-required angles (22 มุม ตามมาตรฐานประกันภัย) ────────────────
 const ANGLES = [
-  {
-    id: 'front',
-    label: 'ด้านหน้าตรง',
-    desc: 'ถ่ายให้เห็นรถเต็มคัน และป้ายทะเบียนหน้าชัดเจน',
-    icon: <MdDirectionsCar />,
-    modelKey: 'Front',
-    tip: 'ยืนห่างจากรถ 3–5 เมตร ตรงกลางหน้ารถ',
-  },
-  {
-    id: 'rear',
-    label: 'ด้านหลังตรง',
-    desc: 'ถ่ายให้เห็นรถเต็มคัน และป้ายทะเบียนหลังชัดเจน',
-    icon: <MdOutlineDirectionsCar />,
-    modelKey: 'Back',
-    tip: 'ยืนห่างจากรถ 3–5 เมตร ตรงกลางท้ายรถ',
-  },
-  {
-    id: 'left',
-    label: 'ด้านข้างซ้าย',
-    desc: 'ถ่ายด้านซ้ายตามยาว เห็นรถตลอดคัน',
-    icon: <FaCarSide />,
-    modelKey: 'Left',
-    tip: 'ยืนห่างจากรถ 3–5 เมตร ขนานด้านซ้ายรถ',
-  },
-  {
-    id: 'right',
-    label: 'ด้านข้างขวา',
-    desc: 'ถ่ายด้านขวาตามยาว เห็นรถตลอดคัน',
-    icon: <FaCarSide style={{ transform: 'scaleX(-1)' }} />,
-    modelKey: 'Right',
-    tip: 'ยืนห่างจากรถ 3–5 เมตร ขนานด้านขวารถ',
-  },
-  {
-    id: 'front-left',
-    label: 'มุมหน้า-ซ้าย 45°',
-    desc: 'ถ่ายมุมเฉียง 45° ด้านหน้า-ซ้าย',
-    icon: <span className="text-lg font-black">↗</span>,
-    modelKey: 'Front-Left',
-    tip: 'ยืนมุม 45° หน้า-ซ้ายของรถ ให้เห็นด้านหน้าและด้านข้าง',
-  },
-  {
-    id: 'front-right',
-    label: 'มุมหน้า-ขวา 45°',
-    desc: 'ถ่ายมุมเฉียง 45° ด้านหน้า-ขวา',
-    icon: <span className="text-lg font-black">↖</span>,
-    modelKey: 'Front-Right',
-    tip: 'ยืนมุม 45° หน้า-ขวาของรถ ให้เห็นด้านหน้าและด้านข้าง',
-  },
-  {
-    id: 'back-left',
-    label: 'มุมหลัง-ซ้าย 45°',
-    desc: 'ถ่ายมุมเฉียง 45° ด้านหลัง-ซ้าย',
-    icon: <span className="text-lg font-black">↙</span>,
-    modelKey: 'Back-Left',
-    tip: 'ยืนมุม 45° หลัง-ซ้ายของรถ ให้เห็นด้านหลังและด้านข้าง',
-  },
-  {
-    id: 'back-right',
-    label: 'มุมหลัง-ขวา 45°',
-    desc: 'ถ่ายมุมเฉียง 45° ด้านหลัง-ขวา',
-    icon: <span className="text-lg font-black">↘</span>,
-    modelKey: 'Back-Right',
-    tip: 'ยืนมุม 45° หลัง-ขวาของรถ ให้เห็นด้านหลังและด้านข้าง',
-  }
+  { id: 'front', label: 'ด้านหน้าตรง', desc: 'ถ่ายให้เห็นรถเต็มคัน และป้ายทะเบียนหน้าชัดเจน', icon: <MdDirectionsCar />, modelKey: 'Front', tip: 'ยืนห่างจากรถ 3–5 เมตร ตรงกลางหน้ารถ' },
+  { id: 'rear', label: 'ด้านหลังตรง', desc: 'ถ่ายให้เห็นรถเต็มคัน และป้ายทะเบียนหลังชัดเจน', icon: <MdOutlineDirectionsCar />, modelKey: 'Back', tip: 'ยืนห่างจากรถ 3–5 เมตร ตรงกลางท้ายรถ' },
+  { id: 'left', label: 'ด้านข้างซ้าย', desc: 'ถ่ายด้านซ้ายตามยาว เห็นรถตลอดคัน', icon: <FaCarSide />, modelKey: 'Left', tip: 'ยืนห่างจากรถ 3–5 เมตร ขนานด้านซ้ายรถ' },
+  { id: 'right', label: 'ด้านข้างขวา', desc: 'ถ่ายด้านขวาตามยาว เห็นรถตลอดคัน', icon: <FaCarSide style={{ transform: 'scaleX(-1)' }} />, modelKey: 'Right', tip: 'ยืนห่างจากรถ 3–5 เมตร ขนานด้านขวารถ' },
+  { id: 'roof', label: 'หลังคารถยนต์', desc: 'ถ่ายให้เห็นหลังคารถชัดเจน', icon: <span className="text-lg font-black">⬆️</span>, modelKey: 'Roof', tip: 'หาจุดที่สูงกว่ารถ หรือชูแขนถ่ายให้เห็นหลังคาเต็มพื้นที่' },
+  { id: 'interior', label: 'ภายใน/อุปกรณ์ตกแต่ง', desc: 'ถ่ายภาพคอนโซลหน้า และภายในรถ', icon: <GiCarSeat />, modelKey: 'Interior', tip: 'เปิดประตูถ่ายให้เห็นคอนโซล เบาะ และอุปกรณ์ภายใน' },
+  { id: 'spare_tire', label: 'ยางอะไหล่', desc: 'ถ่ายภาพยางอะไหล่ (ถ้ามี)', icon: <GiCarWheel />, modelKey: 'SpareTire', tip: 'ถ่ายให้เห็นตัวยางและสภาพของยางอะไหล่' },
+  { id: 'chassis', label: 'เลขตัวถังรถยนต์', desc: 'ถ่ายภาพเลขตัวถังให้ชัดเจน', icon: <FaIdCard />, modelKey: 'ChassisNumber', tip: 'หาตำแหน่งเลขตัวถัง (มักอยู่ที่เสาประตูหรือห้องเครื่อง) แล้วถ่ายให้ชัดเจน' },
+  { id: 'accessories', label: 'กรณีมีอุปกรณ์ตกแต่ง เช่นล้อแม็กซ์ เครื่องเสียง', desc: 'อุปกรณ์ตกแต่งเพิ่มเติม', icon: <FaTools />, modelKey: 'Accessories', tip: 'ถ่ายเจาะจงอุปกรณ์ที่ต้องการระบุในกรมธรรม์' },
+  { id: 'dashcam', label: 'กล้องติดหน้ารถ', desc: 'ถ่ายภาพกล้องที่ติดตั้งในรถ', icon: <MdSettingsInputComponent />, modelKey: 'Dashcam', tip: 'ถ่ายให้เห็นตัวกล้องที่ติดตั้งอยู่บนกระจกหรือคอนโซล' },
+  { id: 'front-right', label: 'เฉียงหน้าด้านขวา', desc: 'ถ่ายมุมเฉียง 45° ด้านหน้า-ขวา', icon: <span className="text-lg font-black">↖</span>, modelKey: 'Front-Right', tip: 'ยืนมุม 45° หน้า-ขวาของรถ' },
+  { id: 'front-left', label: 'เฉียงหน้าด้านซ้าย', desc: 'ถ่ายมุมเฉียง 45° ด้านหน้า-ซ้าย', icon: <span className="text-lg font-black">↗</span>, modelKey: 'Front-Left', tip: 'ยืนมุม 45° หน้า-ซ้ายของรถ' },
+  { id: 'back-right', label: 'เฉียงหลังด้านขวา', desc: 'ถ่ายมุมเฉียง 45° ด้านหลัง-ขวา', icon: <span className="text-lg font-black">↘</span>, modelKey: 'Back-Right', tip: 'ยืนมุม 45° หลัง-ขวาของรถ' },
+  { id: 'back-left', label: 'เฉียงหลังด้านซ้าย', desc: 'ถ่ายมุมเฉียง 45° ด้านหลัง-ซ้าย', icon: <span className="text-lg font-black">↙</span>, modelKey: 'Back-Left', tip: 'ยืนมุม 45° หลัง-ซ้ายของรถ' },
+  { id: 'odometer', label: 'จอเลขไมล์', desc: 'ถ่ายภาพหน้าปัดเรือนไมล์', icon: <MdQrCodeScanner />, modelKey: 'Odometer', tip: 'สตาร์ทรถหรือบิดกุญแจให้เห็นตัวเลขไมล์ชัดเจน' },
+  { id: 'tax_sticker', label: 'แผ่นป้ายภาษี', desc: 'ถ่ายภาพป้ายภาษีรถยนต์', icon: <FaFileAlt />, modelKey: 'TaxSticker', tip: 'ถ่ายให้เห็นปีภาษีและทะเบียนชัดเจน' },
+  { id: 'registration_doc', label: 'รายการจดทะเบียน', desc: 'ถ่ายภาพเล่มทะเบียนรถ', icon: <FaFileAlt />, modelKey: 'RegistrationDoc', tip: 'ถ่ายให้เห็นรายละเอียดในเล่มทะเบียนชัดเจน' },
+  { id: 'engine_compartment', label: 'ห้องเครื่องยนต์', desc: 'ถ่ายภาพห้องเครื่อง', icon: <FaTools />, modelKey: 'EngineCompartment', tip: 'เปิดฝากระโปรงหน้า ถ่ายให้เห็นภาพรวมของห้องเครื่อง' },
+  { id: 'tire_fl', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหน้าซ้าย', desc: 'ล้อหน้าซ้าย', icon: <GiCarWheel />, modelKey: 'TireFrontLeft', tip: 'ถ่ายเจาะจงล้อหน้าซ้าย ให้เห็นยี่ห้อ ขนาด และปีผลิต' },
+  { id: 'tire_fr', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหน้าขวา', desc: 'ล้อหน้าขวา', icon: <GiCarWheel />, modelKey: 'TireFrontRight', tip: 'ถ่ายเจาะจงล้อหน้าขวา ให้เห็นยี่ห้อ ขนาด และปีผลิต' },
+  { id: 'tire_bl', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหลังซ้าย', desc: 'ล้อหลังซ้าย', icon: <GiCarWheel />, modelKey: 'TireBackLeft', tip: 'ถ่ายเจาะจงล้อหลังซ้าย ให้เห็นยี่ห้อ ขนาด และปีผลิต' },
+  { id: 'tire_br', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหลังขวา', desc: 'ล้อหลังขวา', icon: <GiCarWheel />, modelKey: 'TireBackRight', tip: 'ถ่ายเจาะจงล้อหลังขวา ให้เห็นยี่ห้อ ขนาด และปีผลิต' },
+  { id: 'others', label: 'อื่นๆ (MTPhoto)', desc: 'ภาพอื่นๆ นอกเหนือจากที่ระบุ', icon: <FaImage />, modelKey: 'Others', tip: 'ถ่ายภาพส่วนอื่นๆ ของรถเพิ่มเติม' }
 ];
 
 const LABEL_TH = {
@@ -78,10 +38,25 @@ const LABEL_TH = {
   'Back': 'ด้านหลังตรง',
   'Left': 'ด้านข้างซ้าย',
   'Right': 'ด้านข้างขวา',
-  'Front-Left': 'มุมหน้า-ซ้าย 45°',
-  'Front-Right': 'มุมหน้า-ขวา 45°',
-  'Back-Left': 'มุมหลัง-ซ้าย 45°',
-  'Back-Right': 'มุมหลัง-ขวา 45°',
+  'Front-Left': 'เฉียงหน้าด้านซ้าย',
+  'Front-Right': 'เฉียงหน้าด้านขวา',
+  'Back-Left': 'เฉียงหลังด้านซ้าย',
+  'Back-Right': 'เฉียงหลังด้านขวา',
+  'Roof': 'หลังคารถยนต์',
+  'Interior': 'ภายใน/อุปกรณ์ตกแต่ง',
+  'SpareTire': 'ยางอะไหล่',
+  'ChassisNumber': 'เลขตัวถังรถยนต์',
+  'Accessories': 'กรณีมีอุปกรณ์ตกแต่ง เช่นล้อแม็กซ์ เครื่องเสียง',
+  'Dashcam': 'กล้องติดหน้ารถ',
+  'Odometer': 'จอเลขไมล์',
+  'TaxSticker': 'แผ่นป้ายภาษี',
+  'RegistrationDoc': 'รายการจดทะเบียน',
+  'EngineCompartment': 'ห้องเครื่องยนต์',
+  'TireFrontLeft': 'ล้อหน้าซ้าย',
+  'TireFrontRight': 'ล้อหน้าขวา',
+  'TireBackLeft': 'ล้อหลังซ้าย',
+  'TireBackRight': 'ล้อหลังขวา',
+  'Others': 'อื่นๆ (MTPhoto)'
 };
 
 // ─── Blur helper: apply Gaussian-like blur via Canvas StackBlur ──────────────
@@ -109,71 +84,7 @@ async function applyBlurToFile(file, blurPx) {
   });
 }
 
-// ─── TOON Parser Helper ─────────────────────────────────────────────────────
-function fromToon(toonStr) {
-  const lines = toonStr.split('\n').filter(l => l.trim());
-  const result = {};
-  const stack = [{ obj: result, indent: -1 }];
 
-  lines.forEach(line => {
-    const indent = line.search(/\S/);
-    const content = line.trim();
-
-    // Pop stack to match current indentation
-    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-      stack.pop();
-    }
-
-    const current = stack[stack.length - 1].obj;
-
-    if (content.startsWith('|')) {
-      // Tabular list
-      const parts = content.split('|').map(s => s.trim()).filter(s => s);
-      if (!current._keys) {
-        current._keys = parts;
-        current._items = [];
-      } else {
-        const item = {};
-        current._keys.forEach((k, i) => {
-          let val = parts[i];
-          if (val === 'true') val = true;
-          else if (val === 'false') val = false;
-          else if (!isNaN(val)) val = Number(val);
-          item[k] = val;
-        });
-        current._items.push(item);
-      }
-    } else if (content.includes(':')) {
-      const [key, ...rest] = content.split(':');
-      let val = rest.join(':').trim();
-      const lowerVal = val.toLowerCase();
-      if (lowerVal === 'true') val = true;
-      else if (lowerVal === 'false') val = false;
-      else if (lowerVal === 'null') val = null;
-      else if (!isNaN(val) && val !== '') val = Number(val);
-      current[key.trim()] = val;
-    } else {
-      // New object or simple list
-      const key = content.replace(/^- /, '').trim();
-      const newObj = {};
-      current[key] = newObj;
-      stack.push({ obj: newObj, indent });
-    }
-  });
-
-  // Post-process tabular lists
-  const finalize = (obj) => {
-    for (const k in obj) {
-      if (obj[k]._items) {
-        obj[k] = obj[k]._items;
-      } else if (typeof obj[k] === 'object') {
-        finalize(obj[k]);
-      }
-    }
-  };
-  finalize(result);
-  return result;
-}
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 export default function Home() {
@@ -214,6 +125,17 @@ export default function Home() {
     setOriginalFile(null);
   };
 
+  const handleRemoveVerified = (e, angleId) => {
+    e.stopPropagation();
+    if (window.confirm(`ลบรูปภาพมุม "${LABEL_TH[ANGLES.find(a => a.id === angleId)?.modelKey]}" ใช่หรือไม่?`)) {
+      setVerifiedAngles(prev => {
+        const next = { ...prev };
+        delete next[angleId];
+        return next;
+      });
+    }
+  };
+
   const analyzeImage = async (file) => {
     setLoading(true);
     setResult(null);
@@ -238,6 +160,39 @@ export default function Home() {
       if (data.status === 'success') {
         setResult(data);
 
+        // --- เพิ่ม Logic: ถ้าไม่ใช่รถ ให้ลองหาช่อง "อื่นๆ" ที่ว่างอยู่ ---
+        if (!data.is_car) {
+          const predLabel = data.prediction?.label;
+          const EXTERIOR_MODEL_KEYS = ['Front', 'Back', 'Left', 'Right', 'Roof', 'Front-Right', 'Front-Left', 'Back-Right', 'Back-Left'];
+          
+          // ถ้ายอดทำนายยังคงเป็นคลาสกลุ่มภายนอกรถ (แต่ confidence ต่ำ) ไม่ควรย้ายช่องอัตโนมัติ 
+          // เพื่อให้ผู้ใช้เห็นปุ่ม "ยืนยันใช้รูปนี้" (Force Verify) และกดยืนยันใช้งานได้
+          if (!EXTERIOR_MODEL_KEYS.includes(predLabel)) {
+            // Find if the predLabel matches an angle modelKey
+            const targetAngle = ANGLES.find(a => a.modelKey === predLabel);
+            
+            if (targetAngle && !verifiedAngles[targetAngle.id]) {
+              setTimeout(() => {
+                setCapturedImage((img) => {
+                  setVerifiedAngles((prev) => ({
+                    ...prev,
+                    [targetAngle.id]: {
+                      image: img,
+                      confidence: data.prediction.confidence || 100,
+                      quality: data.quality,
+                      class_details: data.class_details,
+                    },
+                  }));
+                  return img;
+                });
+                alert(`ย้ายช่องอัตโนมัติ \nAI ตรวจพบว่าเป็นภาพ "${targetAngle.label}" จึงนำไปใส่ในช่องที่ถูกต้องให้ครับ`);
+                handleBack();
+              }, 700);
+              return;
+            }
+          }
+        }
+
         if (data.is_car) {
           if (data.match) {
             setTimeout(() => {
@@ -248,6 +203,7 @@ export default function Home() {
                     image: img,
                     confidence: data.prediction.confidence,
                     quality: data.quality,
+                    class_details: data.class_details,
                   },
                 }));
                 return img;
@@ -257,7 +213,8 @@ export default function Home() {
             // Auto-Swap logic for single upload
             const predLabel = data.prediction.label;
             const targetAngle = ANGLES.find(a => a.modelKey === predLabel);
-            if (targetAngle && data.prediction.confidence > 55) {
+            const threshold = predLabel === 'Roof' ? 25 : 55;
+            if (targetAngle && data.prediction.confidence > threshold) {
               setTimeout(() => {
                 setCapturedImage((img) => {
                   setVerifiedAngles((prev) => ({
@@ -266,11 +223,12 @@ export default function Home() {
                       image: img,
                       confidence: data.prediction.confidence,
                       quality: data.quality,
+                      class_details: data.class_details,
                     },
                   }));
                   return img;
                 });
-                alert(`สลับช่องอัตโนมัติ 🔄\nAI ตรวจพบว่าเป็นมุม "${targetAngle.label}" แทน จึงจัดเรียงเข้าช่องให้เรียบร้อยแล้วครับ!`);
+                alert(`สลับช่องอัตโนมัติ \nAI ตรวจพบว่าเป็นมุม "${targetAngle.label}" แทน จึงจัดเรียงเข้าช่องให้เรียบร้อยแล้วครับ!`);
                 handleBack();
               }, 1200);
             }
@@ -278,7 +236,27 @@ export default function Home() {
         }
       }
     } catch (err) {
-      setResult({ error: true, message: err.message });
+      // --- Fallback Logic: หากเกิด Error (เช่น 400) ให้เช็คว่าเป็นกลุ่มมุมมองพิเศษหรือไม่ ---
+      const NON_AI_VIEWS = ['interior', 'spare_tire', 'chassis', 'accessories', 'dashcam', 'inspection', 'others'];
+      if (NON_AI_VIEWS.includes(activeAngle.id)) {
+        console.log("Fallback: AI Error but view is Non-AI, verifying anyway.");
+        setTimeout(() => {
+          setCapturedImage((img) => {
+            setVerifiedAngles((prev) => ({
+              ...prev,
+              [activeAngle.id]: {
+                image: img,
+                confidence: 100, // ใส่เป็น 100 สำหรับแมนนวล
+                quality: { is_blurry: false },
+              },
+            }));
+            return img;
+          });
+          handleBack();
+        }, 500);
+      } else {
+        setResult({ error: true, message: err.message });
+      }
     } finally {
       setLoading(false);
     }
@@ -322,18 +300,22 @@ export default function Home() {
 
   // ─── Batch Analysis ───────────────────────────────────────────────────────
   const handleBatchUpload = async (e) => {
-    const files = Array.from(e.target.files);
-    if (!files.length) return;
+    const files = Array.from(e.target.files).filter(file => file.type.startsWith('image/'));
+    if (!files.length) {
+      alert('ไม่พบรูปภาพในโฟลเดอร์ที่เลือก');
+      return;
+    }
 
     setBatchLoading(true);
     try {
       const formData = new FormData();
       const unverifiedKeys = ANGLES.filter(a => !verifiedAngles[a.id]).map(a => a.modelKey);
 
-      files.forEach((file, index) => {
+      const expViewsArray = files.map((file, index) => unverifiedKeys[index] || ANGLES[index % ANGLES.length].modelKey);
+      formData.append('expected_views', expViewsArray.join(','));
+
+      files.forEach((file) => {
         formData.append('files', file);
-        const expView = unverifiedKeys[index] || ANGLES[index % ANGLES.length].modelKey;
-        formData.append('expected_views', expView);
       });
 
       const res = await fetch('/api/v1/analyze_batch', {
@@ -351,13 +333,16 @@ export default function Home() {
       if (data.status === 'success') {
         const newVerified = { ...verifiedAngles };
         let swappedCount = 0;
+        let autoRoutedCount = 0;
 
         const pendingImages = [];
+        const nonVehicleFiles = [];
 
         data.results.forEach((resItem, idx) => {
           if (resItem.needs_swap) swappedCount++;
 
-          if (resItem.is_car && resItem.confidence > 55) {
+          const threshold = resItem.final_assigned_view === 'Roof' ? 25 : 55;
+          if (resItem.is_car && resItem.confidence > threshold) {
             const expectedModelKey = unverifiedKeys[idx] || ANGLES[idx % ANGLES.length].modelKey;
             const expectedAngle = ANGLES.find(a => a.modelKey === expectedModelKey);
             const targetAngle = ANGLES.find(a => a.modelKey === resItem.final_assigned_view);
@@ -368,39 +353,69 @@ export default function Home() {
               targetAngle,
               expectedAngle
             });
+          } else if (!resItem.is_car) {
+            // เก็บรูปที่ไม่ใช่รถไว้ประมวลผลต่อ
+            nonVehicleFiles.push({ file: files[idx], resItem });
           }
         });
 
-        // จัดเรียงตามความมั่นใจ (confidence) เพื่อให้ AI ที่มั่นใจกว่าได้จองมุมนั้นก่อน
+        // 1. จัดการรูปที่ AI ทายมุมได้ก่อน
         pendingImages.sort((a, b) => b.resItem.confidence - a.resItem.confidence);
-
         const newDuplicates = [...duplicateImages];
 
         pendingImages.forEach(item => {
           let assignedAngle = item.targetAngle;
           
+          // Auto-distribute multiple wheels to empty tire slots
           if (assignedAngle && newVerified[assignedAngle.id]) {
-            // ถ้ามุมที่ AI ทายถูกจองไปแล้ว ให้นำไปเก็บใน "ผลรูปซ้ำ"
+            const TIRE_IDS = ['tire_fl', 'tire_fr', 'tire_bl', 'tire_br'];
+            if (TIRE_IDS.includes(assignedAngle.id)) {
+              const emptyTireId = TIRE_IDS.find(id => !newVerified[id]);
+              if (emptyTireId) {
+                assignedAngle = ANGLES.find(a => a.id === emptyTireId);
+              }
+            }
+          }
+
+          if (assignedAngle && newVerified[assignedAngle.id]) {
             newDuplicates.push({
               image: URL.createObjectURL(item.file),
               label: assignedAngle.label,
               confidence: item.resItem.confidence,
             });
           } else if (assignedAngle && !newVerified[assignedAngle.id]) {
-            const url = URL.createObjectURL(item.file);
             newVerified[assignedAngle.id] = {
-              image: url,
+              image: URL.createObjectURL(item.file),
               confidence: item.resItem.confidence,
               quality: item.resItem.quality || {},
+              class_details: item.resItem.class_details,
             };
           }
         });
 
-        setDuplicateImages(newDuplicates);
+        // 2. จัดการรูปที่ไม่ใช่รถ (Auto-Route ไปยังช่องว่างของกลุ่ม Non-AI)
+        const NON_AI_VIEW_IDS = ['interior', 'spare_tire', 'chassis', 'accessories', 'dashcam', 'odometer', 'tax_sticker', 'registration_doc', 'engine_compartment', 'tire_fl', 'tire_fr', 'tire_bl', 'tire_br', 'others'];
+        nonVehicleFiles.forEach(item => {
+          const emptySlotId = NON_AI_VIEW_IDS.find(id => !newVerified[id]);
+          if (emptySlotId) {
+            newVerified[emptySlotId] = {
+              image: URL.createObjectURL(item.file),
+              confidence: 100,
+              quality: { is_non_car: true },
+              class_details: item.resItem.class_details,
+            };
+            autoRoutedCount++;
+          }
+        });
 
+        setDuplicateImages(newDuplicates);
         setVerifiedAngles(newVerified);
-        if (swappedCount > 0) {
-          alert(`จัดเรียงสำเร็จ! มีการสลับมุมให้อัตโนมัติจำนวน ${swappedCount} รูป เนื่องจาก AI ตรวจพบว่าเป็นมุมอื่น`);
+
+        if (swappedCount > 0 || autoRoutedCount > 0) {
+          let msg = `จัดเรียงสำเร็จ!`;
+          if (swappedCount > 0) msg += `\n- สลับมุมรถอัตโนมัติ ${swappedCount} รูป`;
+          if (autoRoutedCount > 0) msg += `\n- จัดลงช่องอื่นๆ (ภายใน/เอกสาร) ${autoRoutedCount} รูป`;
+          alert(msg);
         }
       }
     } catch (err) {
@@ -449,7 +464,10 @@ export default function Home() {
   if (screen === 'capture' && activeAngle) {
     const matched = result?.match && result?.is_car;
     const notCar = result && !result.is_car;
-    const wrongAngle = result?.is_car && result?.match === false;
+    // ปรับเงื่อนไข wrongAngle: ต้องเป็นรถ และ Label ไม่ตรงกับที่คาดหวัง
+    const wrongAngle = result?.is_car && result?.prediction?.label !== activeAngle.modelKey;
+    // เพิ่มเงื่อนไข lowConfidence: ถ้า Label ตรง แต่ความมั่นใจไม่ถึงเกณฑ์
+    const lowConfidence = result?.is_car && result?.prediction?.label === activeAngle.modelKey && !result?.match;
     const topPred = result?.prediction;
 
     return (
@@ -561,6 +579,10 @@ export default function Home() {
             <StatusCard color="yellow" icon="🔄" title={`พบมุมไม่ตรง — กำลังสลับช่องให้อัตโนมัติ`} desc={`AI เห็นว่าเป็น ${LABEL_TH[topPred.label] || topPred.label} (${Math.round(topPred.confidence)}%)`} />
           )}
 
+          {lowConfidence && topPred && (
+            <StatusCard color="yellow" icon="⚠️" title={`ภาพยังไม่ชัดเจนพอ`} desc={`AI เห็นว่าเป็น ${LABEL_TH[topPred.label] || topPred.label} แต่ความมั่นใจต่ำ (${Math.round(topPred.confidence)}%) กรุณาขยับมุมหรือถ่ายในที่สว่างขึ้น`} />
+          )}
+
           {matched && (
             <StatusCard color="green" icon={<FaCheck />} title={`ตรงมุม "${activeAngle.label}" แล้ว!`} desc={`ความมั่นใจ ${Math.round(result.prediction.confidence)}% · คุณภาพภาพผ่าน`} />
           )}
@@ -568,9 +590,29 @@ export default function Home() {
           {result && (
             <div className="flex gap-3 mt-1">
               {!matched && (
-                <button onClick={() => { setCapturedImage(null); setResult(null); fileInputRef.current?.click(); }} className="flex-1 flex items-center justify-center gap-2 py-4 bg-white/10 text-white rounded-2xl font-bold text-sm hover:bg-white/20 transition-all">
-                  <FaRedo className="text-xs" /> ถ่ายใหม่
-                </button>
+                <>
+                  <button onClick={() => { setCapturedImage(null); setResult(null); fileInputRef.current?.click(); }} className="flex-1 flex items-center justify-center gap-2 py-4 bg-white/10 text-white rounded-2xl font-bold text-sm hover:bg-white/20 transition-all">
+                    <FaRedo className="text-xs" /> ถ่ายใหม่
+                  </button>
+                  {/* ปุ่ม Force Verify สำหรับกรณีที่ AI ตรวจไม่เจอแต่ผู้ใช้จะใช้รูปนี้ */}
+                  <button 
+                    onClick={() => {
+                      setVerifiedAngles((prev) => ({
+                        ...prev,
+                        [activeAngle.id]: {
+                          image: capturedImage,
+                          confidence: result?.prediction?.confidence || 0,
+                          quality: result?.quality || {},
+                          is_manual: true
+                        },
+                      }));
+                      handleBack();
+                    }} 
+                    className="flex-1 py-4 bg-blue-600/30 text-blue-400 border border-blue-500/50 rounded-2xl font-bold text-sm hover:bg-blue-600/40 transition-all"
+                  >
+                    ยืนยันใช้รูปนี้
+                  </button>
+                </>
               )}
               {matched && (
                 <button onClick={handleBack} className="flex-1 py-4 bg-green-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-green-500/30 hover:bg-green-600 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
@@ -622,31 +664,57 @@ export default function Home() {
       </div>
 
       <div className="mx-4 mt-3">
-        <input ref={batchInputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleBatchUpload} />
+        <input ref={batchInputRef} type="file" webkitdirectory="true" multiple className="hidden" onChange={handleBatchUpload} />
         <button onClick={() => batchInputRef.current?.click()} disabled={batchLoading} className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600/10 border border-indigo-500/30 text-indigo-700 rounded-2xl font-bold text-sm hover:bg-indigo-600/20 transition-all disabled:opacity-50">
           {batchLoading ? <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" /> : <FaImage />}
-          {batchLoading ? 'กำลังวิเคราะห์หลายภาพ...' : 'อัปโหลดทีละหลายภาพ (Auto-Detect)'}
+          {batchLoading ? 'กำลังวิเคราะห์รูปจากโฟลเดอร์...' : 'อัปโหลดทั้งโฟลเดอร์ (Auto-Detect)'}
         </button>
       </div>
 
-      <div className="flex flex-col gap-3 p-4">
+      <div className="grid grid-cols-3 gap-3 p-4">
         {ANGLES.map((angle, idx) => {
           const verified = verifiedAngles[angle.id];
           const isNext = !verified && idx === ANGLES.findIndex(a => !verifiedAngles[a.id]);
 
           return (
-            <button key={angle.id} onClick={() => !verified && handleStartCapture(angle)} disabled={!!verified} className={`w-full flex items-center gap-4 p-4 rounded-3xl border-2 text-left transition-all duration-300 ${verified ? 'bg-green-50 border-green-200' : isNext ? 'bg-white border-blue-400 shadow-lg shadow-blue-100 active:scale-[0.98]' : 'bg-white border-gray-100 hover:border-gray-200 hover:shadow-sm active:scale-[0.98]'}`}>
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 text-2xl overflow-hidden ${verified ? 'bg-green-100' : isNext ? 'bg-blue-50' : 'bg-gray-100'}`}>
-                {verified?.image ? <img src={verified.image} alt={angle.label} className="w-full h-full object-cover rounded-2xl" /> : <span className={verified ? 'text-green-500' : isNext ? 'text-blue-500' : 'text-gray-300'}>{angle.icon}</span>}
+            <div key={angle.id} className="flex flex-col items-center">
+              <button
+                onClick={() => !verified && handleStartCapture(angle)}
+                disabled={!!verified}
+                className={`relative w-full aspect-[4/3] rounded-xl border-2 overflow-hidden transition-all duration-300 flex items-center justify-center ${verified ? 'border-green-400 bg-white' : isNext ? 'border-blue-400 bg-white shadow-md' : 'border-gray-200 bg-gray-50'}`}
+              >
+                {verified?.image ? (
+                  <>
+                    <img src={verified.image} alt={angle.label} className="w-full h-full object-cover" />
+                    <button 
+                      onClick={(e) => handleRemoveVerified(e, angle.id)}
+                      className="absolute top-1 right-1 w-6 h-6 bg-gray-900/60 text-white rounded-full flex items-center justify-center text-[10px] hover:bg-gray-900 transition-colors z-10"
+                    >
+                      <FaTimes />
+                    </button>
+                  </>
+                ) : (
+                  <div className={`flex flex-col items-center gap-1 ${isNext ? 'text-blue-500' : 'text-gray-300'}`}>
+                    <div className="text-2xl">
+                      {/* ถ้าเป็นกลุ่มมุมรถ ให้ใช้ไอคอนรถ ถ้าไม่ใช่ให้ใช้ไอคอน อื่นๆ/รูปภาพ */}
+                      {['front','rear','left','right','roof','front-left','front-right','back-left','back-right'].includes(angle.id) 
+                        ? angle.icon 
+                        : <FaImage />}
+                    </div>
+                    {isNext && <MdOutlinePhotoCamera className="text-xs" />}
+                  </div>
+                )}
+              </button>
+              
+              <div className="mt-1.5 flex items-center gap-1 px-1 w-full justify-center">
+                <div className={`flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${verified ? 'bg-green-500 text-white' : 'border border-gray-300 bg-white'}`}>
+                  {verified && <FaCheck />}
+                </div>
+                <span className={`text-[10px] font-bold truncate text-center ${verified ? 'text-green-700' : isNext ? 'text-blue-900' : 'text-gray-500'}`}>
+                  {angle.label}
+                </span>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className={`font-bold text-sm ${verified ? 'text-green-800' : isNext ? 'text-blue-900' : 'text-gray-700'}`}>{angle.label}</p>
-                <p className={`text-[11px] mt-0.5 leading-relaxed ${verified ? 'text-green-600' : 'text-gray-400'}`}>{verified ? `ผ่านแล้ว · ความมั่นใจ ${Math.round(verified.confidence ?? 0)}%` : angle.desc}</p>
-              </div>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${verified ? 'bg-green-500 text-white shadow-md shadow-green-300' : isNext ? 'bg-blue-600 text-white shadow-md shadow-blue-300' : 'bg-gray-100 text-gray-400'}`}>
-                {verified ? <FaCheck className="text-xs" /> : isNext ? <MdOutlinePhotoCamera className="text-sm" /> : <span className="text-xs font-bold">{idx + 1}</span>}
-              </div>
-            </button>
+            </div>
           );
         })}
       </div>

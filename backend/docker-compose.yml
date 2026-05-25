@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   backend:
@@ -10,4 +9,6 @@ services:
       - .:/app
     environment:
       - ENV=production
+      - USE_GPU=False
+      - DEVICE=cpu
     restart: always

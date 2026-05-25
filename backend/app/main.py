@@ -34,25 +34,25 @@ async def lifespan(app: FastAPI):
 
     if settings.USE_GPU:
         convnext = convnext.half()
-        try:
-            convnext = torch.compile(convnext, mode="reduce-overhead")
-            logger.info("torch.compile applied (reduce-overhead)")
-        except Exception as e:
-            logger.warning("torch.compile skipped: %s", e)
 
-    yolo = get_yolo_model(settings.YOLO_CLS_PATH, settings.DEVICE)
+    yolo_gen  = get_yolo_model(settings.YOLO_GEN_PATH, settings.DEVICE)
+    
 
-    logger.info(" Warming up models...")
+    # Warmup
     dummy_tensor = torch.zeros(settings.BATCH_MAX_SIZE, 3, 224, 224).to(settings.DEVICE)
-    if settings.USE_GPU: dummy_tensor = dummy_tensor.half()
-    with torch.inference_mode(): convnext(dummy_tensor)
+    if settings.USE_GPU:
+        dummy_tensor = dummy_tensor.half()
+        
+    with torch.inference_mode(): 
+        convnext(dummy_tensor)
 
     dummy_imgs = [np.zeros((224, 224, 3), dtype=np.uint8)] * settings.BATCH_MAX_SIZE
-    yolo(dummy_imgs, verbose=False)
+    yolo_gen(dummy_imgs, verbose=False, device=settings.DEVICE)
+    
     logger.info(" Models ready | batch_warmup_size=%d", settings.BATCH_MAX_SIZE)
 
     loop   = asyncio.get_running_loop()
-    engine = BatchInferenceEngine(convnext, yolo, loop, settings.MAX_QUEUE_DEPTH)
+    engine = BatchInferenceEngine(convnext, yolo_gen, loop, settings.MAX_QUEUE_DEPTH)
     engine.start()
     app.state.engine = engine
 
@@ -83,7 +83,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
