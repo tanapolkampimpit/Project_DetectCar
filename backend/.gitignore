@@ -17,8 +17,13 @@ __pycache__/
 Thumbs.db
 
 # Large AI Models (Prevent Git from hanging/crashing)
-Services/*.pth
-Services/*.pt
+*.pth
+*.pt
+*.onnx
+*.weights
+*.h5
+*.pb
+*.tflite
 
 # Pytest / Coverage
 .pytest_cache/
