@@ -104,6 +104,21 @@ export default function Summarie() {
                                                     </span>
                                                 </div>
                                             )}
+                                            {v.damages && v.damages.length > 0 && (
+                                                <div className="mt-2 flex flex-col gap-1">
+                                                    <p className="text-[10px] font-bold text-red-500">พบรอยตำหนิ ({v.damages.length}):</p>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {v.damages.map((dmg, idx) => (
+                                                            <div key={idx} className="relative w-14 h-14 border border-red-200 rounded overflow-hidden" title={`${dmg.label} - ${dmg.confidence}%`}>
+                                                                {dmg.image_base64 && <img src={dmg.image_base64} alt={dmg.label} className="w-full h-full object-cover" />}
+                                                                <div className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[9px] text-center font-bold truncate px-0.5 py-0.5">
+                                                                    {dmg.label}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>

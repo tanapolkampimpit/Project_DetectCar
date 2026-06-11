@@ -1,157 +1,23 @@
 import logging
-from typing import Dict, Any, List
+import cv2
+import base64
+from typing import Any, List
+
+from app.core.labels import (
+    EXTERIOR_LABELS,
+    LABELS,
+    INSURANCE_ANGLE_MAP,
+    SWAP_MAP,
+    CLASS_GROUPS,
+    THAI_TO_EN_CLASS_MAP,
+    DAMAGE_LABEL_MAP,
+    normalize_class_name,
+    map_yolo_to_frontend,
+)
 
 logger = logging.getLogger("analyze_api")
 
-EXTERIOR_LABELS = [
-    "Front", "Front-Left", "Left", "Back-Left",
-    "Back",  "Back-Right", "Right", "Front-Right",
-]
-
-YOLO_CLASSES = [
-    "chassis_number",
-    "dashcam",
-    "engine_room",
-    "exterior",
-    "inspection_document",
-    "interior",
-    "mileage_screen",
-    "others",
-    "roof",
-    "spare_tire",
-    "wheel"
-]
-
-FRONTEND_KEYS = [
-    "Interior",
-    "SpareTire",
-    "ChassisNumber",
-    "Accessories",
-    "Dashcam",
-    "Odometer",
-    "TaxSticker",
-    "RegistrationDoc",
-    "EngineCompartment",
-    "TireFrontLeft",
-    "TireFrontRight",
-    "TireBackLeft",
-    "TireBackRight",
-    "Others"
-]
-
-LABELS = EXTERIOR_LABELS + FRONTEND_KEYS + YOLO_CLASSES
-
-INSURANCE_ANGLE_MAP = {
-    "Front":       ["Front"],
-    "Front-Left":  ["Front-Left"],
-    "Left":        ["Left"],
-    "Back-Left":   ["Back-Left"],
-    "Back":        ["Back"],
-    "Back-Right":  ["Back-Right"],
-    "Right":       ["Right"],
-    "Front-Right": ["Front-Right"],
-    "Roof":        ["Roof", "roof"],
-    
-    "Interior":          ["interior"],
-    "SpareTire":         ["spare_tire"],
-    "ChassisNumber":     ["chassis_number"],
-    "Accessories":       ["others"],
-    "Dashcam":           ["dashcam"],
-    "Odometer":          ["mileage_screen"],
-    "TaxSticker":        ["inspection_document"],
-    "RegistrationDoc":   ["inspection_document"],
-    "EngineCompartment": ["engine_room"],
-    "TireFrontLeft":     ["wheel"],
-    "TireFrontRight":    ["wheel"],
-    "TireBackLeft":      ["wheel"],
-    "TireBackRight":     ["wheel"],
-    "Others":            ["others"]
-}
-
-SWAP_MAP = {
-    "Front-Left":  "Front-Right",
-    "Front-Right": "Front-Left",
-    "Left":        "Right",
-    "Right":       "Left",
-    "Back-Left":   "Back-Right",
-    "Back-Right":  "Back-Left",
-}
-
-CLASS_GROUPS = {
-    "chassis_number": {"group": "Document", "th_name": "เลขตัวถัง", "en_name": "Chassis Number"},
-    "dashcam": {"group": "Accessories", "th_name": "กล้องหน้ารถ", "en_name": "Dashcam"},
-    "engine_room": {"group": "Engine Compartment", "th_name": "ห้องเครื่อง", "en_name": "Engine Room"},
-    "inspection_document": {"group": "Document", "th_name": "เอกสารตรวจสภาพรถ", "en_name": "Inspection Document"},
-    "interior": {"group": "Interior", "th_name": "ภายในห้องโดยสาร", "en_name": "Interior"},
-    "mileage_screen": {"group": "Interior", "th_name": "หน้าจอกิโลเมตร", "en_name": "Mileage Screen"},
-    "others": {"group": "Other", "th_name": "อื่นๆ", "en_name": "Others"},
-    "roof": {"group": "Exterior", "th_name": "หลังคา", "en_name": "Roof"},
-    "spare_tire": {"group": "Exterior", "th_name": "ยางอะไหล่", "en_name": "Spare Tire"},
-    "wheel": {"group": "Exterior", "th_name": "ล้อรถ", "en_name": "Wheel"},
-    "exterior": {"group": "Exterior", "th_name": "ภายนอก", "en_name": "Exterior"},
-    "Front": {"group": "Exterior", "th_name": "ด้านหน้า", "en_name": "Front"},
-    "Front-Left": {"group": "Exterior", "th_name": "ด้านหน้าซ้าย", "en_name": "Front-Left"},
-    "Left": {"group": "Exterior", "th_name": "ด้านซ้าย", "en_name": "Left"},
-    "Back-Left": {"group": "Exterior", "th_name": "ด้านหลังซ้าย", "en_name": "Back-Left"},
-    "Back": {"group": "Exterior", "th_name": "ด้านหลัง", "en_name": "Back"},
-    "Back-Right": {"group": "Exterior", "th_name": "ด้านหลังขวา", "en_name": "Back-Right"},
-    "Right": {"group": "Exterior", "th_name": "ด้านขวา", "en_name": "Right"},
-    "Front-Right": {"group": "Exterior", "th_name": "ด้านหน้าขวา", "en_name": "Front-Right"}
-}
-
-THAI_TO_EN_CLASS_MAP = {
-    "exterior": "exterior",
-    "กรณีมีอุปกรณ์ตกแต่ง": "others",
-    "กล้องติดหน้ารถ": "dashcam",
-    "จอเลขไมล์": "mileage_screen",
-    "ภายในอุปกรณ์ตกแต่ง": "interior",
-    "ยางอะไหล่": "spare_tire",
-    "ล้อที่ให้เห็นยี่ห้อและขนาดยาง": "wheel",
-    "หลังคารถยนต์": "roof",
-    "ห้องเครื่องยนต์": "engine_room",
-    "อื่นๆ(MTPhoto)": "others",
-    "เลขตัวถังรถยนต์": "chassis_number",
-    "ใบถ่ายรูปตรวจสภาพ": "inspection_document"
-}
-
-def normalize_class_name(name: str) -> str:
-    return name.lower()
-
-# Dynamically populate INSURANCE_ANGLE_MAP for YOLO classes without overwriting existing frontend keys
-for cls in YOLO_CLASSES:
-    if cls not in INSURANCE_ANGLE_MAP:
-        INSURANCE_ANGLE_MAP[cls] = [cls]
-    norm = normalize_class_name(cls)
-    if norm not in INSURANCE_ANGLE_MAP and norm not in INSURANCE_ANGLE_MAP:
-        INSURANCE_ANGLE_MAP[norm] = [cls]
-
-def map_yolo_to_frontend(cls_name: str) -> str:
-    cls_lower = cls_name.lower()
-    if cls_lower == "chassis_number":
-        return "ChassisNumber"
-    if cls_lower == "dashcam":
-        return "Dashcam"
-    if cls_lower == "engine_room":
-        return "EngineCompartment"
-    if cls_lower == "inspection_document":
-        return "RegistrationDoc"
-    if cls_lower == "interior":
-        return "Interior"
-    if cls_lower == "mileage_screen":
-        return "Odometer"
-    if cls_lower == "roof":
-        return "Roof"
-    if cls_lower == "spare_tire":
-        return "SpareTire"
-    if cls_lower == "others":
-        return "Others"
-    if cls_lower == "wheel":
-        return "TireFrontLeft" # Default fallback
-    return cls_name
-
-def build_result(item, probs: list, yolo_gen_out, total_ms: float, settings) -> dict:
-    norm_expected = normalize_class_name(item.expected_view)
-    
+def build_result(item, probs: list, yolo_gen_out, yolo_damage_out, total_ms: float, settings) -> dict:
     # Any expected view not in the 9 exterior labels is treated as a YOLO/frontend custom view
     is_yolo_class = item.expected_view not in EXTERIOR_LABELS
 
@@ -181,20 +47,65 @@ def build_result(item, probs: list, yolo_gen_out, total_ms: float, settings) -> 
     # Sort detections by confidence descending
     yolo_detections.sort(key=lambda x: x["confidence"], reverse=True)
 
+    # Extract damage detections
+    damages = []
+    if yolo_damage_out is not None and hasattr(yolo_damage_out, "boxes") and yolo_damage_out.boxes is not None:
+        names = yolo_damage_out.names
+        h, w, _ = item.img.shape
+        for idx, c in enumerate(yolo_damage_out.boxes.cls):
+            conf = float(yolo_damage_out.boxes.conf[idx])
+            
+            # 1. Filter by confidence
+            if conf < 0.30:
+                continue
+                
+            xyxy = yolo_damage_out.boxes.xyxy[idx].tolist()
+            x1, y1, x2, y2 = [int(v) for v in xyxy]
+            
+            # Remove area filter to allow any size of damage
+
+            class_name = names[int(c)]
+            thai_label = DAMAGE_LABEL_MAP.get(class_name, class_name)
+            
+            # Crop and encode image for frontend
+            padding = 20
+            px1 = max(0, x1 - padding)
+            py1 = max(0, y1 - padding)
+            px2 = min(w, x2 + padding)
+            py2 = min(h, y2 + padding)
+            
+            cropped = item.img[py1:py2, px1:px2].copy()
+            
+            # Draw box on the cropped image (item.img is RGB, but we need BGR for encoding to display correctly via base64 in typical cases)
+            cropped_bgr = cv2.cvtColor(cropped, cv2.COLOR_RGB2BGR)
+            bx1 = x1 - px1
+            by1 = y1 - py1
+            bx2 = x2 - px1
+            by2 = y2 - py1
+            cv2.rectangle(cropped_bgr, (bx1, by1), (bx2, by2), (0, 0, 255), 2)
+            
+            _, buffer = cv2.imencode('.jpg', cropped_bgr)
+            img_base64 = base64.b64encode(buffer).decode('utf-8')
+
+            damages.append({
+                "label": thai_label,
+                "confidence": round(conf * 100, 2),
+                "box": [round(x, 2) for x in xyxy],
+                "image_base64": f"data:image/jpeg;base64,{img_base64}"
+            })
+
     largest_car_ratio = 0.0
     is_too_far = False
 
     # Calculate largest car ratio if Car/Roof is detected
-    for d in yolo_detections:
-        if d["label"].lower() in ["car", "roof"]:
-            if yolo_gen_out is not None and hasattr(yolo_gen_out, "boxes") and yolo_gen_out.boxes is not None:
-                names = yolo_gen_out.names
-                for idx, c in enumerate(yolo_gen_out.boxes.cls):
-                    if names[int(c)].lower() in ["car", "roof"] and hasattr(yolo_gen_out.boxes, "xyxyn"):
-                        xyxyn = yolo_gen_out.boxes.xyxyn[idx]
-                        area = float(xyxyn[2] - xyxyn[0]) * float(xyxyn[3] - xyxyn[1])
-                        if area > largest_car_ratio:
-                            largest_car_ratio = area
+    if yolo_gen_out is not None and hasattr(yolo_gen_out, "boxes") and yolo_gen_out.boxes is not None and hasattr(yolo_gen_out.boxes, "xyxyn"):
+        names = yolo_gen_out.names
+        for idx, c in enumerate(yolo_gen_out.boxes.cls):
+            if names[int(c)].lower() in ["car", "roof"]:
+                xyxyn = yolo_gen_out.boxes.xyxyn[idx]
+                area = float(xyxyn[2] - xyxyn[0]) * float(xyxyn[3] - xyxyn[1])
+                if area > largest_car_ratio:
+                    largest_car_ratio = area
 
     if largest_car_ratio > 0 and largest_car_ratio < settings.MIN_CAR_AREA_RATIO:
         is_too_far = True
@@ -214,7 +125,15 @@ def build_result(item, probs: list, yolo_gen_out, total_ms: float, settings) -> 
     yolo_detections.sort(key=lambda x: x["confidence"], reverse=True)
 
     yolo_top1_label = yolo_detections[0]["label"].lower() if yolo_detections else ""
+    
     yolo_exterior = (yolo_top1_label == "exterior")
+    if yolo_top1_label == "others" and probs is not None:
+        # If YOLO says 'others' but we ran ConvNeXt, check if ConvNeXt is highly confident
+        # about an exterior angle. Since ConvNeXt probs sum to 1, a high confidence (e.g., > 0.5)
+        # means it's likely an exterior shot that YOLO missed.
+        max_prob = max(probs)
+        if max_prob > 0.4:
+            yolo_exterior = True
 
     if yolo_exterior:
         # Force to ConvNeXt logic so it can predict the exact exterior side
@@ -254,7 +173,7 @@ def build_result(item, probs: list, yolo_gen_out, total_ms: float, settings) -> 
             is_car = (best_det["confidence"] >= settings.MATCH_THRESHOLD)
             # Match failed, map the highest confidence detection to its default frontend key
             best = {
-                "label": map_yolo_to_frontend(best_det["label"]),
+                "label": map_yolo_to_frontend(best_det["label"], item.expected_view),
                 "confidence": best_det["confidence"]
             }
             actual_detected_label = best_det["label"]
@@ -290,7 +209,7 @@ def build_result(item, probs: list, yolo_gen_out, total_ms: float, settings) -> 
             match = match_candidate
 
             # Combined Side Probability
-            if item.expected_view in ["Left", "Right"] and best["label"] in ["Left", "Right"]:
+            if item.expected_view in ["Left", "Right"] and best["label"] == item.expected_view:
                 left_conf = next((r["confidence"] for r in results if r["label"] == "Left"), 0.0)
                 right_conf = next((r["confidence"] for r in results if r["label"] == "Right"), 0.0)
                 combined_side_conf = left_conf + right_conf
@@ -302,7 +221,7 @@ def build_result(item, probs: list, yolo_gen_out, total_ms: float, settings) -> 
             if yolo_detections:
                 best_det = yolo_detections[0]
                 best = {
-                    "label": map_yolo_to_frontend(best_det["label"]),
+                    "label": map_yolo_to_frontend(best_det["label"], item.expected_view),
                     "confidence": best_det["confidence"]
                 }
                 actual_detected_label = best_det["label"]
@@ -342,7 +261,8 @@ def build_result(item, probs: list, yolo_gen_out, total_ms: float, settings) -> 
             "car_area_ratio": round(largest_car_ratio, 4)
         },
         "time_ms"      : round(total_ms, 2),
-        "class_details": class_details
+        "class_details": class_details,
+        "damages"      : damages
     }
 
 
@@ -375,6 +295,7 @@ def process_batch_results(results: List[Any], expected_views: List[str], files: 
             "confidence": res["prediction"]["confidence"],
             "needs_swap": not match and is_car,
             "quality": res.get("quality", {}),
-            "class_details": res.get("class_details", None)
+            "class_details": res.get("class_details", None),
+            "damages": res.get("damages", [])
         })
     return final_results

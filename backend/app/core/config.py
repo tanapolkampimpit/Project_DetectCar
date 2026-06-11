@@ -1,12 +1,12 @@
-import torch
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
+    ENVIRONMENT: str = "development"
     USE_GPU: bool = False 
     DEVICE: str = "cpu"
     MODEL_PATH: str = "./ModelsAi/8_Roof.pth" 
     YOLO_GEN_PATH: str = "./ModelsAi/outside_Now.pt"
-    
+    YOLO_DAMAGE_PATH: str = "./ModelsAi/modeldamage_6_10.pt"
     
     BATCH_MAX_SIZE: int = 32
     BATCH_MAX_WAIT: float = 0.05

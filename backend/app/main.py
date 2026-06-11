@@ -1,6 +1,5 @@
 import logging
 import asyncio
-import numpy as np
 import torch
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -9,8 +8,7 @@ import uvicorn
 
 from app.core.config import settings
 from app.core.engine import BatchInferenceEngine
-from app.models.convnext import MultiTaskConvNeXt
-from app.models.yolo import get_yolo_model
+from app.services.model_loader import load_models
 from app.api.v1 import analyze, health
 
 logging.basicConfig(
@@ -25,34 +23,13 @@ torch.set_grad_enabled(False)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("System Booting | device=%s", settings.DEVICE)
+    logger.info("System Booting | environment=%s | device=%s", settings.ENVIRONMENT, settings.DEVICE)
 
-    convnext = MultiTaskConvNeXt().to(settings.DEVICE)
-    state_dict = torch.load(settings.MODEL_PATH, map_location=settings.DEVICE, weights_only=True)
-    convnext.load_state_dict(state_dict, strict=False)
-    convnext.eval()
-
-    if settings.USE_GPU:
-        convnext = convnext.half()
-
-    yolo_gen  = get_yolo_model(settings.YOLO_GEN_PATH, settings.DEVICE)
-    
-
-    # Warmup
-    dummy_tensor = torch.zeros(settings.BATCH_MAX_SIZE, 3, 224, 224).to(settings.DEVICE)
-    if settings.USE_GPU:
-        dummy_tensor = dummy_tensor.half()
-        
-    with torch.inference_mode(): 
-        convnext(dummy_tensor)
-
-    dummy_imgs = [np.zeros((224, 224, 3), dtype=np.uint8)] * settings.BATCH_MAX_SIZE
-    yolo_gen(dummy_imgs, verbose=False, device=settings.DEVICE)
-    
-    logger.info(" Models ready | batch_warmup_size=%d", settings.BATCH_MAX_SIZE)
+    # Load all models via the dedicated service
+    convnext, yolo_gen, yolo_damage = load_models()
 
     loop   = asyncio.get_running_loop()
-    engine = BatchInferenceEngine(convnext, yolo_gen, loop, settings.MAX_QUEUE_DEPTH)
+    engine = BatchInferenceEngine(convnext, yolo_gen, yolo_damage, loop, settings.MAX_QUEUE_DEPTH)
     engine.start()
     app.state.engine = engine
 

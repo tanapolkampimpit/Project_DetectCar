@@ -7,8 +7,10 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from app.core.engine import backpressure, BatchItem, BatchInferenceEngine
 from app.services.preprocessor import decode_and_analyze_image, preprocess, prepare_image_for_inference
-from app.services.analyzer import INSURANCE_ANGLE_MAP, LABELS, process_batch_results
+from app.core.labels import INSURANCE_ANGLE_MAP, LABELS
+from app.services.analyzer import process_batch_results
 from app.core.config import settings
+from app.api.helpers import read_file_safe
 
 logger = logging.getLogger("analyze_api")
 router = APIRouter()
@@ -35,15 +37,10 @@ async def analyze(
     handed_over_to_engine = False  
 
     try:
-        max_file_bytes = getattr(settings, "MAX_FILE_BYTES", 25 * 1024 * 1024)
-        content_bytes = bytearray()
-        while chunk := await file.read(1024 * 1024):
-            content_bytes.extend(chunk)
-            if len(content_bytes) > max_file_bytes:
-                raise HTTPException(413, f"File too large (>{max_file_bytes / (1024 * 1024):.0f}MB)")
-
-        content = bytes(content_bytes)
-        del content_bytes
+        try:
+            content = await read_file_safe(file)
+        except ValueError as ve:
+            raise HTTPException(413, str(ve))
 
         decoded = await run_in_threadpool(decode_and_analyze_image, content)
         del content
@@ -56,10 +53,11 @@ async def analyze(
         # --- ตาม Flow: เช็ค Blur ก่อนเข้า Queue ---
         if blur_score < settings.BLUR_THRESHOLD:
             logger.info("[%s] rejected early | blur_score=%.1f (too blurry)", request_id, blur_score)
+            backpressure.release()  # <--- คืนคิวกลับให้ระบบ
             return {
                 "status": "error",
                 "error": "image_too_blurry",
-                "message": "ภาพไม่ชัดเจน กรุณาถ่ายใหม่",
+                "message": "image is too blurry",
                 "quality": {
                     "is_blurry": True,
                     "blur_score": round(blur_score, 2)
@@ -173,16 +171,7 @@ async def analyze_batch(
         # 1. Decode and preprocess all images concurrently
         async def prepare_item(i, file, exp_view):
             # Stream read chunk-by-chunk to prevent memory exhaustion (DoS / OOM)
-            max_file_bytes = getattr(settings, "MAX_FILE_BYTES", 25 * 1024 * 1024)
-            content_bytes = bytearray()
-            while chunk := await file.read(1024 * 1024):
-                content_bytes.extend(chunk)
-                if len(content_bytes) > max_file_bytes:
-                    max_mb = max_file_bytes / (1024 * 1024)
-                    raise ValueError(f"ไฟล์ {file.filename} มีขนาดใหญ่เกินไป (>{max_mb:.0f}MB)")
-            
-            content = bytes(content_bytes)
-            del content_bytes
+            content = await read_file_safe(file)
 
             # Combine decode and preprocess into ONE threadpool call
             res = await run_in_threadpool(prepare_image_for_inference, content)

@@ -18,8 +18,8 @@ async def health(request: Request):
             "uptime": f"{stats['uptime_seconds']}s"
         },
         "load": {
-            "queue_depth"  : engine._queue.qsize(),
-            "active_tasks" : backpressure._count,
+            "queue_depth"  : engine.queue_depth,
+            "active_tasks" : backpressure.current_count,
             "max_capacity" : settings.MAX_QUEUE_DEPTH
         },
         "config": {

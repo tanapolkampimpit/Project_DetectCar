@@ -1,4 +1,3 @@
-
 services:
   backend:
     build: .
@@ -7,8 +6,10 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+    env_file:
+      - .env
     environment:
-      - ENV=production
+      - ENVIRONMENT=production
       - USE_GPU=False
       - DEVICE=cpu
     restart: always

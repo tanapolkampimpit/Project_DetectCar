@@ -32,8 +32,6 @@ export default function ResultCard({
   setPredictions,
   isCar,
   setIsCar,
-  capturedImage,
-  verifiedAngles
 }) {
   const [selectedResult, setSelectedResult] = useState(null);
   const [targetConfidence, setTargetConfidence] = useState(null);
@@ -147,8 +145,8 @@ export default function ResultCard({
                 key={res.label}
                 onClick={() => setSelectedResult(res)}
                 className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all text-left ${isSelected
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-100 bg-gray-50 hover:border-gray-200'
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-100 bg-gray-50 hover:border-gray-200'
                   }`}
               >
                 {/* Confidence bar */}
@@ -163,8 +161,8 @@ export default function ResultCard({
                   <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-200 ${isSelected ? 'bg-blue-500' :
-                          confInt > 70 ? 'bg-green-400' :
-                            confInt > 40 ? 'bg-orange-400' : 'bg-red-400'
+                        confInt > 70 ? 'bg-green-400' :
+                          confInt > 40 ? 'bg-orange-400' : 'bg-red-400'
                         }`}
                       style={{ width: `${confInt}%` }}
                     />

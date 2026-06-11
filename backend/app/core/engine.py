@@ -8,7 +8,8 @@ import numpy as np
 import torch
 from fastapi.concurrency import run_in_threadpool
 from app.core.config import settings
-from app.services.analyzer import build_result, LABELS, EXTERIOR_LABELS, THAI_TO_EN_CLASS_MAP
+from app.core.labels import LABELS, EXTERIOR_LABELS, THAI_TO_EN_CLASS_MAP
+from app.services.analyzer import build_result
 
 logger = logging.getLogger("analyze_api")
 
@@ -37,6 +38,11 @@ class BackpressureGate:
     def release(self):
         with self._lock:
             self._count = max(0, self._count - 1)
+
+    @property
+    def current_count(self) -> int:
+        with self._lock:
+            return self._count
 
 backpressure = BackpressureGate(settings.MAX_QUEUE_DEPTH)
 
@@ -74,12 +80,17 @@ metrics = TelemetryTracker()
 MODEL_THREAD_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=6)
 
 class BatchInferenceEngine:
-    def __init__(self, convnext, yolo_gen, loop: asyncio.AbstractEventLoop, max_queue: int):
+    def __init__(self, convnext, yolo_gen, yolo_damage, loop: asyncio.AbstractEventLoop, max_queue: int):
         self.convnext  = convnext
         self.yolo_gen  = yolo_gen
+        self.yolo_damage = yolo_damage
         self.loop      = loop
         self._queue: asyncio.Queue[BatchItem] = asyncio.Queue(maxsize=max_queue)
         self._tasks: list[asyncio.Task]       = []
+
+    @property
+    def queue_depth(self) -> int:
+        return self._queue.qsize()
 
     def start(self):
         for i in range(settings.NUM_BATCH_WORKERS):
@@ -167,11 +178,13 @@ class BatchInferenceEngine:
             # YOLO GATEKEEPER
             # ============================================
             yolo_gen_results = None
+            imgs_bgr = None
+
+            if self.yolo_gen is not None or self.yolo_damage is not None:
+                imgs_bgr = [item.img[:, :, ::-1] for item in batch]
 
             if self.yolo_gen is not None:
                 try:
-                    imgs_bgr = [item.img[:, :, ::-1] for item in batch]
-
                     with torch.inference_mode():
                         yolo_gen_results = self.yolo_gen(
                             imgs_bgr,
@@ -182,6 +195,55 @@ class BatchInferenceEngine:
                 except Exception as e:
                     logger.warning(
                         "YOLO gatekeeper failed: %s",
+                        e
+                    )
+
+            # ============================================
+            # YOLO DAMAGE DETECTION (Conditional)
+            # ============================================
+            yolo_damage_results = [None] * len(batch)
+            damage_indices = []
+
+            if self.yolo_gen is not None and yolo_gen_results is not None:
+                for idx, yolo_out in enumerate(yolo_gen_results):
+                    needs_damage = False
+                    if hasattr(yolo_out, "probs") and yolo_out.probs is not None:
+                        top_conf_idx = int(yolo_out.probs.top1)
+                        class_name = yolo_out.names[top_conf_idx]
+                        mapped_name = THAI_TO_EN_CLASS_MAP.get(class_name, class_name).lower()
+                        if mapped_name in ["exterior", "roof", "others"]:
+                            needs_damage = True
+                    elif hasattr(yolo_out, "boxes") and yolo_out.boxes is not None and len(yolo_out.boxes.cls) > 0:
+                        top_conf_idx = int(yolo_out.boxes.cls[0])
+                        class_name = yolo_out.names[top_conf_idx]
+                        mapped_name = THAI_TO_EN_CLASS_MAP.get(class_name, class_name).lower()
+                        if mapped_name in ["exterior", "roof", "others"]:
+                            needs_damage = True
+                    
+                    if needs_damage:
+                        damage_indices.append(idx)
+            else:
+                # Fallback to expected_view if YOLO gen is missing
+                for idx, item in enumerate(batch):
+                    if item.expected_view in EXTERIOR_LABELS + ["Roof", "Others"]:
+                        damage_indices.append(idx)
+
+            if self.yolo_damage is not None and len(damage_indices) > 0:
+                try:
+                    damage_imgs_bgr = [imgs_bgr[i] for i in damage_indices]
+                    with torch.inference_mode():
+                        partial_damage_results = self.yolo_damage(
+                            damage_imgs_bgr,
+                            verbose=False,
+                            device=settings.DEVICE
+                        )
+                    
+                    for i, batch_idx in enumerate(damage_indices):
+                        yolo_damage_results[batch_idx] = partial_damage_results[i]
+
+                except Exception as e:
+                    logger.warning(
+                        "YOLO damage failed: %s",
                         e
                     )
 
@@ -207,14 +269,14 @@ class BatchInferenceEngine:
                         top_conf_idx = int(yolo_out.probs.top1)
                         class_name = yolo_out.names[top_conf_idx]
                         mapped_name = THAI_TO_EN_CLASS_MAP.get(class_name, class_name)
-                        if mapped_name.lower() == "exterior":
+                        if mapped_name.lower() in ["exterior", "others"]:
                             needs_cnn = True
                     elif hasattr(yolo_out, "boxes") and yolo_out.boxes is not None and len(yolo_out.boxes.cls) > 0:
                         # Detection model top confidence
                         top_conf_idx = int(yolo_out.boxes.cls[0])
                         class_name = yolo_out.names[top_conf_idx]
                         mapped_name = THAI_TO_EN_CLASS_MAP.get(class_name, class_name)
-                        if mapped_name.lower() == "exterior":
+                        if mapped_name.lower() in ["exterior", "others"]:
                             needs_cnn = True
                             
                     if needs_cnn:
@@ -266,6 +328,11 @@ class BatchInferenceEngine:
                         yolo_gen_out=(
                             yolo_gen_results[i]
                             if yolo_gen_results is not None
+                            else None
+                        ),
+                        yolo_damage_out=(
+                            yolo_damage_results[i]
+                            if yolo_damage_results is not None
                             else None
                         ),
                         total_ms=(
