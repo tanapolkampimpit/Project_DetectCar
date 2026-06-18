@@ -9,36 +9,87 @@
 
 ระบบถูกออกแบบด้วยสถาปัตยกรรมแบบ **Client-Server Architecture** โดยมุ่งเน้นประสิทธิภาพการประมวลผล AI ขั้นสูง (High-Performance AI Inference) ภายในโหนดเดียว (Single-Node Optimization) โดยใช้ In-Process Async Queue เพื่อลดความหน่วง (Network Latency) แทนการใช้ External Queue (เช่น Redis) เนื่องจากการส่งผ่านข้อมูลรูปภาพ (Tensor) ขนาดใหญ่ข้ามเครือข่ายมีต้นทุนสูง
 
-```text
-                [ Client / Browser ]
-                        | (HTTP / React Router)
-                        v
-                [ Vite Frontend Server ]
-                        | (REST API / multipart/form-data)
-                        v
-                [ FastAPI Backend (Docker) ]
-                 /        |        \
-                v         v         v
-      [ Validation ] [ Preprocess ] [ Blur Check ]
-                        |
-                        v
-          [ In-Process Async Queue ]  <-- (Batch Inference Engine)
-                        |
-                        v
-              [ Batch Worker Thread ] 
-                 /              \
-                v                v
-       [ ConvNeXt Model ]   [ YOLOv8 Model ]
-          (Angle Detect)      (Vehicle Detect)
-                 \              /
-                  v            v
-           [ Post-processing Logic ] 
-                        |
-                        v
-                [ Response JSON ]
-                        |
-                        v
-                      Client
+```mermaid
+flowchart TD
+    %% Nodes
+    Client((Client))
+    API[API Endpoint /analyze]
+    Decode[Decode Image to Numpy Array]
+    Blur{Blur Score >= Threshold?}
+    Reject[Reject Image Too Blurry]
+    Resize[Create 224x224 PyTorch Tensor]
+    Pack[Create BatchItem: Original Image + Tensor]
+    Queue[Enter Queue & Backpressure]
+    Worker[Batch Worker: Groups images]
+    YOLOGen[1. YOLO Gen Gatekeeper]
+    CheckCar{Is Exterior/Roof/Other?}
+    YOLODamage[2. YOLO Damage]
+    ConvNeXt[3. ConvNeXt Angle]
+    Skip[Skip Heavy Models]
+    Builder[Analyzer build_result]
+    JSONResponse[Format Clean JSON]
+    Finish((End))
+
+    %% Subgraphs
+    subgraph phase1 [1. Preprocessor CPU]
+        Decode
+        Blur
+        Reject
+        Resize
+        Pack
+    end
+
+    subgraph phase2 [2. Batch Engine GPU]
+        Queue
+        Worker
+        YOLOGen
+        CheckCar
+        YOLODamage
+        ConvNeXt
+        Skip
+    end
+
+    subgraph phase3 [3. Analyzer CPU]
+        Builder
+        JSONResponse
+    end
+
+    %% Edges
+    Client -->|POST Image| API
+    API --> Decode
+    Decode --> Blur
+    Blur -->|No| Reject
+    Blur -->|Yes| Resize
+    Resize --> Pack
+    
+    Pack --> Queue
+    Queue --> Worker
+    Worker --> YOLOGen
+    YOLOGen --> CheckCar
+    CheckCar -->|Yes| YOLODamage
+    CheckCar -->|Yes| ConvNeXt
+    CheckCar -->|No| Skip
+    
+    YOLODamage --> Builder
+    ConvNeXt --> Builder
+    Skip --> Builder
+    Builder --> JSONResponse
+    
+    Reject --> Finish
+    JSONResponse --> Finish
+
+    %% Styling
+    classDef client fill:#4285F4,color:white,stroke-width:0px;
+    classDef process fill:#f1f3f4,stroke:#dadce0,stroke-width:2px;
+    classDef decision fill:#fce8e6,stroke:#ea4335,stroke-width:2px;
+    classDef endpoint fill:#34a853,color:white,stroke-width:0px;
+    classDef model fill:#fbbc04,stroke:#f29900,stroke-width:2px;
+
+    class Client,Finish client;
+    class API,Reject endpoint;
+    class Decode,Resize,Pack,Queue,Worker,Skip,Builder,JSONResponse process;
+    class Blur,CheckCar decision;
+    class YOLOGen,YOLODamage,ConvNeXt model;
 ```
 
 ---
@@ -152,3 +203,4 @@ expected_view: "Front"
 **🚀 การขยายระบบในอนาคต (Future Scaling):**
 หากองค์กรต้องการรองรับผู้ใช้งานหลักหมื่นคนพร้อมกัน (Horizontal Scaling) สามารถปรับสถาปัตยกรรมโดยดึง Queue ออกมาเป็น External Service ได้ดังนี้:
 `Client -> API Gateway (Nginx) -> FastAPI Nodes -> Redis Message Queue -> GPU Worker Nodes`
+

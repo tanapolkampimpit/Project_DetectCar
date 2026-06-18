@@ -5,7 +5,7 @@ import timm
 class MultiTaskConvNeXt(nn.Module):
     def __init__(self):
         super().__init__()
-        # Model_detect_0.pth uses backbone.head.fc to project 768 to 1024
+        # The legacy ConvNeXt checkpoint uses backbone.head.fc to project 768 to 1024.
         self.backbone = timm.create_model("convnext_small", pretrained=False, num_classes=1024)
         self.class_prediction = nn.Linear(1024, 8)
 
@@ -13,7 +13,7 @@ class MultiTaskConvNeXt(nn.Module):
         f = self.backbone(x)
         class_logits = self.class_prediction(f)
         
-        # Since Model_detect_0.pth does not predict Roof, we mock roof_logits with -100.0.
+        # Since the legacy ConvNeXt checkpoint does not predict Roof, we mock roof_logits with -100.0.
         # This keeps the shape of logits_9 at 9 for pipeline compatibility, while ensuring
         # the model never predicts "Roof" (softmax probability will be virtually 0%).
         roof_logits = torch.full((class_logits.shape[0], 1), -100.0, dtype=class_logits.dtype, device=class_logits.device)

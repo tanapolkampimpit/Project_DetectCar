@@ -32,6 +32,26 @@ const ANGLES = [
   { id: 'others', label: 'อื่นๆ (MTPhoto)', desc: 'ภาพอื่นๆ นอกเหนือจากที่ระบุ', icon: <FaImage />, modelKey: 'Others', tip: 'ถ่ายภาพส่วนอื่นๆ ของรถเพิ่มเติม' }
 ];
 
+const DAMAGE_ELIGIBLE_MODEL_KEYS = new Set([
+  'Front',
+  'Back',
+  'Left',
+  'Right',
+  'Front-Left',
+  'Front-Right',
+  'Back-Left',
+  'Back-Right',
+  'Roof',
+  'Others',
+]);
+
+const isDamageModelKeyEligible = (modelKey) => DAMAGE_ELIGIBLE_MODEL_KEYS.has(modelKey);
+
+const isDamageEligible = (item) => (
+  isDamageModelKeyEligible(item?.angle?.modelKey)
+  || isDamageModelKeyEligible(item?.viewResult?.prediction?.label)
+);
+
 const LABEL_TH = {
   'Front': 'ด้านหน้าตรง',
   'Back': 'ด้านหลังตรง',
@@ -59,6 +79,22 @@ const LABEL_TH = {
 };
 
 
+
+const CLASS_GROUPS_MAP = {
+  'Front': 'Exterior', 'Back': 'Exterior', 'Left': 'Exterior', 'Right': 'Exterior',
+  'Front-Left': 'Exterior', 'Front-Right': 'Exterior', 'Back-Left': 'Exterior', 'Back-Right': 'Exterior',
+  'Roof': 'Exterior', 'SpareTire': 'Exterior', 'TireFrontLeft': 'Exterior', 'TireFrontRight': 'Exterior',
+  'TireBackLeft': 'Exterior', 'TireBackRight': 'Exterior',
+  'Interior': 'Interior', 'Dashcam': 'Accessories', 'Odometer': 'Interior',
+  'ChassisNumber': 'Document', 'TaxSticker': 'Document', 'RegistrationDoc': 'Document',
+  'EngineCompartment': 'Engine Compartment',
+  'Accessories': 'Other', 'Others': 'Other'
+};
+
+const getClassDetails = (label) => ({
+  group: CLASS_GROUPS_MAP[label] || 'Other',
+  th_name: LABEL_TH[label] || label
+});
 
 const drawDamagesOnImage = (imageSrc, damages) => {
   return new Promise((resolve) => {
@@ -131,6 +167,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [batchLoading, setBatchLoading] = useState(false);
+  const [damageAllLoading, setDamageAllLoading] = useState(false);
+  const [damageQueue, setDamageQueue] = useState([]);
   const fileInputRef = useRef(null);
   const galleryInputRef = useRef(null);
   const batchInputRef = useRef(null);
@@ -162,161 +200,332 @@ export default function Home() {
         delete next[angleId];
         return next;
       });
+      setDamageQueue(prev => prev.filter(item => item.angleId !== angleId && item.originalAngleId !== angleId));
     }
   };
 
-  const analyzeImage = async (file) => {
+  const stageImageForDamage = async (file) => {
     setLoading(true);
     setResult(null);
 
     // Immediate preview
-    let base64Image = await new Promise(resolve => {
+    const base64Image = await new Promise(resolve => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result);
       reader.readAsDataURL(file);
     });
     setCapturedImage(base64Image);
     setOriginalImage(base64Image);
-    const originalBase64Image = base64Image;
+
+    try {
+      const healthRes = await fetch('/api/v1/health');
+      if (!healthRes.ok) throw new Error(`Health check failed ${healthRes.status}`);
+      const healthData = await healthRes.json();
+      const queueId = `${activeAngle.id}-${Date.now()}`;
+
+      const queuedImage = {
+        id: queueId,
+        angleId: activeAngle.id,
+        originalAngleId: activeAngle.id,
+        angle: activeAngle,
+        originalAngle: activeAngle,
+        file,
+        image: base64Image,
+        originalImage: base64Image,
+        damages: [],
+        status: 'ready',
+        viewStatus: 'pending',
+        viewResult: null,
+        health: healthData,
+      };
+
+      setDamageQueue(prev => [queuedImage, ...prev.filter(item => item.angleId !== activeAngle.id && item.originalAngleId !== activeAngle.id)]);
+      setResult({ staged: true, message: 'รูปพร้อมสำหรับทำนายรอยแล้ว' });
+      await predictViewForItem(queuedImage);
+    } catch (err) {
+      setResult({ error: true, message: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const predictViewForItem = async (item) => {
+    setDamageQueue(prev => prev.map(row => (
+      row.id === item.id
+        ? { ...row, viewStatus: 'loading', viewError: null }
+        : row
+    )));
 
     try {
       const formData = new FormData();
-      formData.append('file', file, 'image.jpg');
-      formData.append('expected_view', activeAngle.modelKey);
+      formData.append('file', item.file, 'image.jpg');
+      formData.append('expected_view', item.angle.modelKey);
 
-      const res = await fetch('/api/v1/analyze', {
+      const res = await fetch('/api/v1/predict_view', {
         method: 'POST',
         body: formData,
       });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
+
       const data = await res.json();
+      if (data.status === 'error') {
+        throw new Error(data.message || data.error || 'View prediction failed');
+      }
 
-      if (data.status === 'success') {
-        setResult(data);
+      const predictedLabel = data.prediction?.label;
+      const predictedConfidence = data.prediction?.confidence || 0;
+      const targetAngle = ANGLES.find(a => a.modelKey === predictedLabel);
+      const switchThreshold = predictedLabel === 'Roof' ? 25 : 55;
+      const shouldAutoSwitch = (
+        data.is_car &&
+        !data.match &&
+        targetAngle &&
+        targetAngle.id !== item.angleId &&
+        predictedConfidence > switchThreshold &&
+        !verifiedAngles[targetAngle.id]
+      );
+      const assignedAngle = shouldAutoSwitch ? targetAngle : item.angle;
 
-        // draw boxes
-        if (data.damages && data.damages.length > 0) {
-          base64Image = await drawDamagesOnImage(base64Image, data.damages);
-          setCapturedImage(base64Image);
-        }
-
-        // --- เพิ่ม Logic: ถ้าไม่ใช่รถ ให้ลองหาช่อง "อื่นๆ" ที่ว่างอยู่ ---
-        if (!data.is_car) {
-          const predLabel = data.prediction?.label;
-          const EXTERIOR_MODEL_KEYS = ['Front', 'Back', 'Left', 'Right', 'Roof', 'Front-Right', 'Front-Left', 'Back-Right', 'Back-Left'];
-
-          // ถ้ายอดทำนายยังคงเป็นคลาสกลุ่มภายนอกรถ (แต่ confidence ต่ำ) ไม่ควรย้ายช่องอัตโนมัติ 
-          // เพื่อให้ผู้ใช้เห็นปุ่ม "ยืนยันใช้รูปนี้" (Force Verify) และกดยืนยันใช้งานได้
-          if (!EXTERIOR_MODEL_KEYS.includes(predLabel)) {
-            // Find if the predLabel matches an angle modelKey
-            const targetAngle = ANGLES.find(a => a.modelKey === predLabel);
-
-            if (targetAngle && !verifiedAngles[targetAngle.id]) {
-              setTimeout(() => {
-                setCapturedImage((img) => {
-                  setVerifiedAngles((prev) => ({
-                    ...prev,
-                    [targetAngle.id]: {
-                      image: img,
-                      originalImage: originalBase64Image,
-                      confidence: data.prediction.confidence || 100,
-                      quality: data.quality,
-                      class_details: data.class_details,
-                      damages: data.damages || [],
-                    },
-                  }));
-                  return img;
-                });
-                alert(`ย้ายช่องอัตโนมัติ \nAI ตรวจพบว่าเป็นภาพ "${targetAngle.label}" จึงนำไปใส่ในช่องที่ถูกต้องให้ครับ`);
-                handleBack();
-              }, 700);
-              return;
-            }
+      setDamageQueue(prev => prev.map(row => (
+        row.id === item.id
+          ? {
+            ...row,
+            angleId: assignedAngle.id,
+            angle: assignedAngle,
+            originalAngleId: row.originalAngleId || item.angleId,
+            originalAngle: row.originalAngle || item.angle,
+            viewStatus: 'done',
+            viewResult: data,
+            viewError: null,
+            auto_switched: shouldAutoSwitch,
           }
-        }
+          : row
+      )));
 
-        if (data.is_car) {
-          if (data.match) {
-            setTimeout(() => {
-              setCapturedImage((img) => {
-                setVerifiedAngles((prev) => ({
-                  ...prev,
-                  [activeAngle.id]: {
-                    image: img,
-                    confidence: data.prediction.confidence,
-                    quality: data.quality,
-                    class_details: data.class_details,
-                    damages: data.damages || [],
-                  },
-                }));
-                return img;
-              });
-            }, 700);
-          } else {
-            // Auto-Swap logic for single upload
-            const predLabel = data.prediction.label;
-            const targetAngle = ANGLES.find(a => a.modelKey === predLabel);
-            const threshold = predLabel === 'Roof' ? 25 : 55;
-            if (targetAngle && data.prediction.confidence > threshold) {
-              setTimeout(() => {
-                setCapturedImage((img) => {
-                  setVerifiedAngles((prev) => ({
-                    ...prev,
-                    [targetAngle.id]: {
-                      image: img,
-                      originalImage: originalBase64Image,
-                      confidence: data.prediction.confidence,
-                      quality: data.quality,
-                      class_details: data.class_details,
-                      damages: data.damages || [],
-                    },
-                  }));
-                  return img;
-                });
-                alert(`สลับช่องอัตโนมัติ \nAI ตรวจพบว่าเป็นมุม "${targetAngle.label}" แทน จึงจัดเรียงเข้าช่องให้เรียบร้อยแล้วครับ!`);
-                handleBack();
-              }, 1200);
-            }
-          }
-        }
+      if (activeAngle?.id === item.angleId || activeAngle?.id === item.originalAngleId) {
+        setResult({
+          ...data,
+          view_checked: true,
+          auto_switched: shouldAutoSwitch,
+          auto_switched_to: shouldAutoSwitch ? assignedAngle.label : null,
+        });
       }
     } catch (err) {
-      // --- Fallback Logic: หากเกิด Error (เช่น 400) ให้เช็คว่าเป็นกลุ่มมุมมองพิเศษหรือไม่ ---
-      const NON_AI_VIEWS = ['interior', 'spare_tire', 'chassis', 'accessories', 'dashcam', 'inspection', 'others'];
-      if (NON_AI_VIEWS.includes(activeAngle.id)) {
-        console.log("Fallback: AI Error but view is Non-AI, verifying anyway.");
-        setTimeout(() => {
-          setCapturedImage((img) => {
-            setVerifiedAngles((prev) => ({
-              ...prev,
-              [activeAngle.id]: {
-                image: img,
-                confidence: 100, // ใส่เป็น 100 สำหรับแมนนวล
-                quality: { is_blurry: false },
-              },
-            }));
-            return img;
-          });
-          handleBack();
-        }, 500);
-      } else {
+      setDamageQueue(prev => prev.map(row => (
+        row.id === item.id
+          ? { ...row, viewStatus: 'error', viewError: err.message }
+          : row
+      )));
+
+      if (activeAngle?.id === item.angleId || activeAngle?.id === item.originalAngleId) {
         setResult({ error: true, message: err.message });
       }
+    }
+  };
+
+  const predictDamageForItem = async (item) => {
+    if (!isDamageEligible(item)) {
+      setDamageQueue(prev => prev.map(row => (
+        row.id === item.id
+          ? { ...row, status: 'skipped', damages: [], error: null }
+          : row
+      )));
+      return;
+    }
+
+    setDamageQueue(prev => prev.map(row => row.id === item.id ? { ...row, status: 'loading', error: null } : row));
+
+    try {
+      const formData = new FormData();
+      formData.append('file', item.file, 'image.jpg');
+
+      const res = await fetch('/api/v1/predict_damage', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+
+      const data = await res.json();
+      if (data.status === 'error') {
+        throw new Error(data.message || data.error || 'Damage prediction failed');
+      }
+
+      const imageWithBoxes = data.damages?.length
+        ? await drawDamagesOnImage(item.originalImage, data.damages)
+        : item.originalImage;
+
+      const predictedLabel = item.viewResult?.prediction?.label;
+      const predictedConfidence = item.viewResult?.prediction?.confidence || 0;
+      const assignedAngle = item.angle;
+
+      setDamageQueue(prev => prev.map(row => (
+        row.id === item.id
+          ? {
+            ...row,
+            angleId: assignedAngle.id,
+            angle: assignedAngle,
+            image: imageWithBoxes,
+            damages: data.damages || [],
+            quality: data.quality || {},
+            time_ms: data.time_ms || 0,
+            status: 'done',
+            originalAngle: item.originalAngle || item.angle,
+          }
+          : row
+      )));
+
+      setVerifiedAngles(prev => ({
+        ...prev,
+        [assignedAngle.id]: {
+          ...(prev[assignedAngle.id] || {}),
+          image: imageWithBoxes,
+          originalImage: item.originalImage,
+          confidence: predictedConfidence || prev[assignedAngle.id]?.confidence || 100,
+          damages: data.damages || [],
+          quality: {
+            ...(item.viewResult?.quality || {}),
+            ...(data.quality || {}),
+          },
+          class_details: getClassDetails(predictedLabel || assignedAngle.modelKey),
+          prediction: item.viewResult?.prediction,
+          match: item.viewResult?.match,
+          is_car: item.viewResult?.is_car,
+          time_ms: data.time_ms || 0,
+          original_expected: item.originalAngle?.modelKey || item.angle.modelKey,
+          auto_switched: item.auto_switched || false,
+          original_angle_label: item.originalAngle?.label,
+        },
+      }));
+
+      if (activeAngle?.id === item.angleId || activeAngle?.id === item.originalAngleId) {
+        setCapturedImage(imageWithBoxes);
+        setResult({
+          ...(item.viewResult || {}),
+          damage_checked: true,
+          auto_switched: item.auto_switched || false,
+          auto_switched_to: item.auto_switched ? item.angle.label : null,
+          damages: data.damages || [],
+          quality: {
+            ...(item.viewResult?.quality || {}),
+            ...(data.quality || {}),
+          },
+          time_ms: data.time_ms || 0
+        });
+      }
+    } catch (err) {
+      setDamageQueue(prev => prev.map(row => row.id === item.id ? { ...row, status: 'error', error: err.message } : row));
+      if (activeAngle?.id === item.angleId) {
+        setResult({ error: true, message: err.message });
+      }
+    }
+  };
+
+  const confirmItemWithoutDamage = (item) => {
+    const assignedAngle = item.angle;
+    const predictedLabel = item.viewResult?.prediction?.label || assignedAngle.modelKey;
+    const predictedConfidence = item.viewResult?.prediction?.confidence || 100;
+
+    setDamageQueue(prev => prev.map(row => (
+      row.id === item.id
+        ? { ...row, status: 'skipped', damages: [], error: null }
+        : row
+    )));
+
+    setVerifiedAngles(prev => ({
+      ...prev,
+      [assignedAngle.id]: {
+        ...(prev[assignedAngle.id] || {}),
+        image: item.image,
+        originalImage: item.originalImage,
+        confidence: predictedConfidence,
+        damages: [],
+        quality: item.viewResult?.quality || item.health || {},
+        class_details: getClassDetails(predictedLabel),
+        prediction: item.viewResult?.prediction,
+        match: item.viewResult?.match,
+        is_car: item.viewResult?.is_car,
+        original_expected: item.originalAngle?.modelKey || assignedAngle.modelKey,
+        auto_switched: item.auto_switched || false,
+        original_angle_label: item.originalAngle?.label,
+      },
+    }));
+
+    if (activeAngle?.id === item.angleId || activeAngle?.id === item.originalAngleId) {
+      setResult({
+        ...(item.viewResult || {}),
+        damage_checked: true,
+        damages: [],
+        skipped_damage: true,
+      });
+    }
+  };
+
+  const handlePredictAllDamages = async () => {
+    const pendingItems = damageQueue.filter(item => (
+      isDamageEligible(item)
+      && item.status !== 'done'
+      && item.viewStatus !== 'loading'
+    ));
+    if (!pendingItems.length) return;
+
+    setDamageAllLoading(true);
+    try {
+      for (const item of pendingItems) {
+        await predictDamageForItem(item);
+      }
     } finally {
-      setLoading(false);
+      setDamageAllLoading(false);
     }
   };
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      analyzeImage(file);
+      stageImageForDamage(file);
     }
     e.target.value = '';
   };
 
 
   // ─── Batch Analysis ───────────────────────────────────────────────────────
+  const predictViewForBatchFile = async (file, expectedModelKey) => {
+    const formData = new FormData();
+    formData.append('file', file, file.name || 'image.jpg');
+    formData.append('expected_view', expectedModelKey);
+
+    const res = await fetch('/api/v1/predict_view', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText || `Server error ${res.status}`);
+    }
+
+    const data = await res.json();
+    const predictedLabel = data.prediction?.label || 'Unknown';
+    const confidence = data.prediction?.confidence || 0;
+    const isCar = Boolean(data.is_car);
+    const match = Boolean(data.match);
+    const finalAssignedView = !match && isCar ? predictedLabel : expectedModelKey;
+
+    return {
+      original_expected: expectedModelKey,
+      predicted_label: predictedLabel,
+      final_assigned_view: finalAssignedView,
+      is_car: isCar,
+      match,
+      confidence,
+      needs_swap: !match && isCar,
+      quality: data.quality || {},
+      damages: [],
+      prediction: data.prediction,
+      time_ms: data.time_ms || 0,
+      error: data.status === 'error' ? (data.error || data.message) : null,
+    };
+  };
+
   const handleBatchUpload = async (e) => {
     const files = Array.from(e.target.files).filter(file => file.type.startsWith('image/'));
     if (!files.length) {
@@ -326,27 +535,15 @@ export default function Home() {
 
     setBatchLoading(true);
     try {
-      const formData = new FormData();
       const unverifiedKeys = ANGLES.filter(a => !verifiedAngles[a.id]).map(a => a.modelKey);
-
       const expViewsArray = files.map((file, index) => unverifiedKeys[index] || ANGLES[index % ANGLES.length].modelKey);
-      formData.append('expected_views', expViewsArray.join(','));
+      const results = [];
 
-      files.forEach((file) => {
-        formData.append('files', file);
-      });
-
-      const res = await fetch('/api/v1/analyze_batch', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || `Server error ${res.status}`);
+      for (let idx = 0; idx < files.length; idx += 1) {
+        results.push(await predictViewForBatchFile(files[idx], expViewsArray[idx]));
       }
 
-      const data = await res.json();
+      const data = { status: 'success', results };
 
       if (data.status === 'success') {
         const newVerified = { ...verifiedAngles };
@@ -380,6 +577,7 @@ export default function Home() {
         // 1. จัดการรูปที่ AI ทายมุมได้ก่อน
         pendingImages.sort((a, b) => b.resItem.confidence - a.resItem.confidence);
         const newDuplicates = [...duplicateImages];
+        const newDamageQueueItems = [];
 
         for (const item of pendingImages) {
           let assignedAngle = item.targetAngle;
@@ -412,13 +610,47 @@ export default function Home() {
               confidence: item.resItem.confidence,
             });
           } else if (assignedAngle && !newVerified[assignedAngle.id]) {
+            const viewResult = {
+              prediction: item.resItem.prediction || {
+                label: item.resItem.predicted_label,
+                confidence: item.resItem.confidence,
+              },
+              match: item.resItem.match,
+              is_car: item.resItem.is_car,
+              quality: item.resItem.quality || {},
+              time_ms: item.resItem.time_ms || 0,
+            };
+
             newVerified[assignedAngle.id] = {
               image: fileObjUrl,
+              originalImage: fileObjUrl,
+              file: item.file,
               confidence: item.resItem.confidence,
               quality: item.resItem.quality || {},
-              class_details: item.resItem.class_details,
+              class_details: getClassDetails(item.resItem.predicted_label || item.resItem.prediction?.label),
               damages: item.resItem.damages || [],
+              prediction: viewResult.prediction,
+              match: viewResult.match,
+              is_car: viewResult.is_car,
             };
+
+            if (isDamageModelKeyEligible(assignedAngle.modelKey)) {
+              newDamageQueueItems.push({
+                id: `batch-${assignedAngle.id}-${Date.now()}-${newDamageQueueItems.length}`,
+                angleId: assignedAngle.id,
+                originalAngleId: item.expectedAngle?.id || assignedAngle.id,
+                angle: assignedAngle,
+                originalAngle: item.expectedAngle || assignedAngle,
+                file: item.file,
+                image: fileObjUrl,
+                originalImage: fileObjUrl,
+                damages: item.resItem.damages || [],
+                status: 'ready',
+                viewStatus: 'done',
+                viewResult,
+                auto_switched: item.resItem.needs_swap || false,
+              });
+            }
           }
         }
 
@@ -431,7 +663,7 @@ export default function Home() {
               image: URL.createObjectURL(item.file),
               confidence: 100,
               quality: { is_non_car: true },
-              class_details: item.resItem.class_details,
+              class_details: getClassDetails('Others'),
               damages: item.resItem.damages || [],
             };
             autoRoutedCount++;
@@ -440,6 +672,13 @@ export default function Home() {
 
         setDuplicateImages(newDuplicates);
         setVerifiedAngles(newVerified);
+        if (newDamageQueueItems.length > 0) {
+          const queuedAngleIds = new Set(newDamageQueueItems.map(item => item.angleId));
+          setDamageQueue(prev => [
+            ...newDamageQueueItems,
+            ...prev.filter(item => !queuedAngleIds.has(item.angleId)),
+          ]);
+        }
 
         if (swappedCount > 0 || autoRoutedCount > 0) {
           let msg = `จัดเรียงสำเร็จ!`;
@@ -456,34 +695,59 @@ export default function Home() {
     }
   };
 
-  // Generate the right panel for damaged images
-  const damagedImages = Object.entries(verifiedAngles).filter(([, v]) => v.damages && v.damages.length > 0).map(([id, v]) => ({
-    angle: ANGLES.find(a => a.id === id),
-    ...v
-  }));
+  const completedDamageCount = damageQueue.filter(item => item.status === 'done' && item.damages.length > 0).length;
+  const eligibleDamageCount = damageQueue.filter(isDamageEligible).length;
+  const pendingDamageCount = damageQueue.filter(item => isDamageEligible(item) && item.status !== 'done').length;
 
   const rightPanel = (
     <div className="hidden lg:flex flex-col w-[500px] max-w-[40vw] bg-white border-l border-gray-200 overflow-y-auto h-screen sticky top-0">
       <div className="p-6 bg-red-50/90 border-b border-red-100 sticky top-0 z-10 backdrop-blur-md">
         <h2 className="text-xl font-bold text-red-700 flex items-center gap-2">
-          <FaShieldAlt className="text-red-500" /> รอยตำหนิที่ตรวจพบ ({damagedImages.length})
+          <FaShieldAlt className="text-red-500" /> คิวทำนายรอย ({damageQueue.length})
         </h2>
-        <p className="text-sm text-red-500/80 mt-1">รายการภาพที่มีการตีกรอบรอยความเสียหาย</p>
+        <p className="text-sm text-red-500/80 mt-1">คัดเฉพาะหลังคา/ภายนอก/อื่นๆ {eligibleDamageCount} รูป · พบรอยแล้ว {completedDamageCount} รูป · รอทำนาย {pendingDamageCount} รูป</p>
+        {damageQueue.length > 0 && (
+          <button
+            onClick={handlePredictAllDamages}
+            disabled={damageAllLoading || pendingDamageCount === 0}
+            className="mt-4 w-full py-3 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+          >
+            {damageAllLoading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <FaShieldAlt />
+            )}
+            {damageAllLoading ? 'กำลังทำนายรอยทั้งหมด...' : `ทำนายรอยทั้งหมด (${pendingDamageCount})`}
+          </button>
+        )}
       </div>
       <div className="p-6 flex flex-col gap-6">
-        {damagedImages.length === 0 ? (
+        {damageQueue.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
             <FaShieldAlt className="text-6xl mb-4 opacity-20" />
-            <p>ยังไม่พบรูปรอยตำหนิ</p>
+            <p>ยังไม่มีรูปที่รอทำนายรอย</p>
           </div>
         ) : (
-          damagedImages.map((item, i) => (
-            <div key={i} className="bg-white border border-red-100 rounded-2xl overflow-hidden shadow-sm">
+          damageQueue.map((item) => {
+            const canPredictDamage = isDamageEligible(item);
+
+            return (
+              <div key={item.id} className="bg-white border border-red-100 rounded-2xl overflow-hidden shadow-sm">
               <div className="bg-red-50/50 px-4 py-3 border-b border-red-50 flex justify-between items-center">
                 <span className="font-bold text-red-900">{item.angle?.label || 'รูปภาพ'}</span>
-                <span className="text-xs bg-red-500 text-white px-2 py-1 rounded-full font-bold shadow-sm shadow-red-500/30">
-                  พบ {item.damages.length} จุด
-                </span>
+                {item.status === 'done' ? (
+                  <span className="text-xs bg-red-500 text-white px-2 py-1 rounded-full font-bold shadow-sm shadow-red-500/30">
+                    พบ {item.damages.length} จุด
+                  </span>
+                ) : !canPredictDamage ? (
+                  <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full font-bold">
+                    ข้าม
+                  </span>
+                ) : (
+                  <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full font-bold">
+                    รอทำนาย
+                  </span>
+                )}
               </div>
               <div 
                 className="bg-gray-900 flex justify-center relative group p-2 cursor-pointer"
@@ -497,20 +761,84 @@ export default function Home() {
                 </div>
               </div>
               <div className="p-4 bg-white">
-                <div className="flex flex-wrap gap-2">
-                  {item.damages.map((dmg, idx) => (
-                    <div key={idx} className="flex items-center gap-2 bg-white border border-gray-200 shadow-sm px-2 py-1.5 rounded-xl">
-                      {dmg.image_base64 && <img src={dmg.image_base64} alt={dmg.label} className="w-10 h-10 object-cover rounded-lg border border-gray-100" />}
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-gray-800">{dmg.label}</span>
-                        <span className="text-[10px] text-gray-400">มั่นใจ {dmg.confidence}%</span>
-                      </div>
+                {!canPredictDamage && (
+                  <div className="mb-3 flex flex-col gap-2">
+                    <p className="text-xs text-gray-400 font-medium">ไม่ใช่กลุ่มหลังคา/ภายนอก/อื่นๆ จึงไม่ส่งตรวจรอย</p>
+                    {item.status !== 'skipped' && item.status !== 'done' && (
+                      <button
+                        onClick={() => confirmItemWithoutDamage(item)}
+                        className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold text-sm hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+                      >
+                        <FaCheck /> ยืนยัน ไม่ต้องตรวจรอย
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {canPredictDamage && item.status !== 'done' && (
+                  <button
+                    onClick={() => predictDamageForItem(item)}
+                    disabled={damageAllLoading || item.status === 'loading' || item.viewStatus === 'loading'}
+                    className="w-full py-3 bg-red-500 text-white rounded-xl font-bold text-sm hover:bg-red-600 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                  >
+                    {item.status === 'loading' ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <FaShieldAlt />
+                    )}
+                    {item.viewStatus === 'loading' ? 'รอตรวจมุม...' : item.status === 'loading' ? 'กำลังทำนายรอย...' : 'ทำนายรอย'}
+                  </button>
+                )}
+
+                {item.status === 'error' && (
+                  <p className="mt-2 text-xs text-red-500 font-medium">{item.error}</p>
+                )}
+
+                <div className="mb-3">
+                  {item.viewResult ? (
+                    <div className={`rounded-xl px-3 py-2 text-xs font-bold ${item.viewResult.match && item.viewResult.is_car ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-yellow-50 text-yellow-700 border border-yellow-100'}`}>
+                      AI ทาย: {LABEL_TH[item.viewResult.prediction?.label] || item.viewResult.prediction?.label || 'Unknown'} · {Math.round(item.viewResult.prediction?.confidence || 0)}%
                     </div>
-                  ))}
+                  ) : (
+                    <button
+                      onClick={() => predictViewForItem(item)}
+                      disabled={item.viewStatus === 'loading'}
+                      className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                    >
+                      {item.viewStatus === 'loading' ? (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <FaCheck />
+                      )}
+                      {item.viewStatus === 'loading' ? 'กำลังตรวจมุม...' : 'ตรวจมุม'}
+                    </button>
+                  )}
+                  {item.viewStatus === 'error' && (
+                    <p className="mt-2 text-xs text-red-500 font-medium">{item.viewError}</p>
+                  )}
                 </div>
+
+                {item.status === 'done' && item.damages.length === 0 && (
+                  <p className="text-sm text-gray-400 font-medium">ไม่พบรอยตำหนิในรูปนี้</p>
+                )}
+
+                {item.damages.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {item.damages.map((dmg, idx) => (
+                      <div key={idx} className="flex items-center gap-2 bg-white border border-gray-200 shadow-sm px-2 py-1.5 rounded-xl">
+                        {dmg.image_base64 && <img src={dmg.image_base64} alt={dmg.label} className="w-10 h-10 object-cover rounded-lg border border-gray-100" />}
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold text-gray-800">{dmg.label}</span>
+                          <span className="text-[10px] text-gray-400">มั่นใจ {dmg.confidence}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>
@@ -570,7 +898,7 @@ export default function Home() {
           </button>
 
           <button
-            onClick={() => { setVerifiedAngles({}); setScreen('checklist'); }}
+            onClick={() => { setVerifiedAngles({}); setDamageQueue([]); setScreen('checklist'); }}
             className="text-gray-400 font-bold text-sm hover:text-gray-600 z-10"
           >
             เริ่มถ่ายใหม่อีกครั้ง
@@ -584,8 +912,10 @@ export default function Home() {
 
   // ── Capture screen ──────────────────────────────────────────────────────
   if (screen === 'capture' && activeAngle) {
+    const activeDamageItem = damageQueue.find(item => item.angleId === activeAngle.id || item.originalAngleId === activeAngle.id);
+    const canPredictActiveDamage = isDamageEligible(activeDamageItem);
     const matched = result?.match && result?.is_car;
-    const notCar = result && !result.is_car;
+    const notCar = result?.is_car === false;
     // ปรับเงื่อนไข wrongAngle: ต้องเป็นรถ และ Label ไม่ตรงกับที่คาดหวัง
     const wrongAngle = result?.is_car && result?.prediction?.label !== activeAngle.modelKey;
     // เพิ่มเงื่อนไข lowConfidence: ถ้า Label ตรง แต่ความมั่นใจไม่ถึงเกณฑ์
@@ -641,7 +971,7 @@ export default function Home() {
             {loading && (
               <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-3">
                 <div className="w-10 h-10 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span className="text-white text-sm font-medium">AI กำลังตรวจสอบ...</span>
+                <span className="text-white text-sm font-medium">กำลังเช็ค API...</span>
               </div>
             )}
 
@@ -672,12 +1002,34 @@ export default function Home() {
               <StatusCard color="red" icon={<FaTimes />} title="เกิดข้อผิดพลาด ในการทำนาย" desc={result.message} />
             )}
 
+            {result?.staged && (
+              <StatusCard
+                color="green"
+                icon={<FaCheck />}
+                title="เพิ่มรูปเข้าคิวแล้ว"
+                desc={canPredictActiveDamage ? 'กดตรวจมุมเพื่อให้ AI บอกว่าถูกมุมไหม จากนั้นค่อยทำนายรอย' : 'รูปนี้ไม่ใช่หลังคา/ภายนอก/อื่นๆ จึงไม่ต้องทำนายรอย'}
+              />
+            )}
+
+            {result?.damage_checked && (
+              <StatusCard
+                color="green"
+                icon={<FaShieldAlt />}
+                title={result.skipped_damage ? 'ยืนยันรูปแล้ว' : 'ทำนายรอยเสร็จแล้ว'}
+                desc={result.skipped_damage ? 'ข้ามการทำนายรอย เพราะไม่ใช่กลุ่มหลังคา/ภายนอก/อื่นๆ' : `พบรอย ${result.damages?.length || 0} จุด`}
+              />
+            )}
+
             {notCar && (
               <StatusCard color="red" icon={<FaTimes />} title="ไม่พบรถยนต์ในภาพ" desc="กรุณาถ่ายภาพรถยนต์ให้ชัดเจนและอยู่กลางภาพ" />
             )}
 
             {wrongAngle && topPred && (
-              <StatusCard color="yellow" icon="🔄" title={`พบมุมไม่ตรง — กำลังสลับช่องให้อัตโนมัติ`} desc={`AI เห็นว่าเป็น ${LABEL_TH[topPred.label] || topPred.label} (${Math.round(topPred.confidence)}%)`} />
+              <StatusCard color="yellow" icon="↔" title="พบมุมไม่ตรง" desc={`AI เห็นว่าเป็น ${LABEL_TH[topPred.label] || topPred.label} (${Math.round(topPred.confidence)}%)`} />
+            )}
+
+            {result?.auto_switched && (
+              <StatusCard color="yellow" icon="↔" title="ย้ายช่องให้อัตโนมัติแล้ว" desc={`รูปนี้ถูกนำไปไว้ที่ "${result.auto_switched_to}"`} />
             )}
 
             {lowConfidence && topPred && (
@@ -688,7 +1040,80 @@ export default function Home() {
               <StatusCard color="green" icon={<FaCheck />} title={`ตรงมุม "${activeAngle.label}" แล้ว!`} desc={`ความมั่นใจ ${Math.round(result.prediction.confidence)}% · คุณภาพภาพผ่าน`} />
             )}
 
-            {result && (
+            {activeDamageItem && activeDamageItem.status !== 'done' && (
+              <div className="flex flex-col gap-3 mt-1">
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setCapturedImage(null);
+                      setOriginalImage(null);
+                      setResult(null);
+                      setDamageQueue(prev => prev.filter(item => item.angleId !== activeAngle.id && item.originalAngleId !== activeAngle.id));
+                      fileInputRef.current?.click();
+                    }}
+                    className="flex-1 flex items-center justify-center gap-2 py-4 bg-white/10 text-white rounded-2xl font-bold text-sm hover:bg-white/20 transition-all"
+                  >
+                    <FaRedo className="text-xs" /> ถ่ายใหม่
+                  </button>
+                  <button
+                    onClick={() => activeDamageItem && predictViewForItem(activeDamageItem)}
+                    disabled={!activeDamageItem || activeDamageItem.viewStatus === 'loading'}
+                    className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-blue-500/30 hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {activeDamageItem?.viewStatus === 'loading' ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <FaCheck />
+                    )}
+                    {activeDamageItem?.viewStatus === 'loading' ? 'กำลังตรวจ...' : activeDamageItem?.viewResult ? 'ตรวจมุมอีกครั้ง' : 'ตรวจมุม'}
+                  </button>
+                </div>
+                {canPredictActiveDamage ? (
+                  <button
+                    onClick={() => activeDamageItem && predictDamageForItem(activeDamageItem)}
+                    disabled={!activeDamageItem || damageAllLoading || activeDamageItem.status === 'loading' || activeDamageItem.viewStatus === 'loading'}
+                    className="w-full py-4 bg-red-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-red-500/30 hover:bg-red-600 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {activeDamageItem?.status === 'loading' ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <FaShieldAlt />
+                    )}
+                    {activeDamageItem?.viewStatus === 'loading' ? 'รอตรวจมุม...' : activeDamageItem?.status === 'loading' ? 'กำลังทำนาย...' : 'ทำนายรอย'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => activeDamageItem && confirmItemWithoutDamage(activeDamageItem)}
+                    disabled={!activeDamageItem || activeDamageItem.viewStatus === 'loading'}
+                    className="w-full py-4 bg-gray-100 text-gray-800 rounded-2xl font-bold text-sm hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <FaCheck /> ยืนยัน ไม่ต้องตรวจรอย
+                  </button>
+                )}
+              </div>
+            )}
+
+            {result?.damage_checked && (
+              <div className="flex gap-3 mt-1">
+                <button
+                  onClick={() => {
+                    setCapturedImage(null);
+                    setOriginalImage(null);
+                    setResult(null);
+                    setDamageQueue(prev => prev.filter(item => item.angleId !== activeAngle.id && item.originalAngleId !== activeAngle.id));
+                    fileInputRef.current?.click();
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 py-4 bg-white/10 text-white rounded-2xl font-bold text-sm hover:bg-white/20 transition-all"
+                >
+                  <FaRedo className="text-xs" /> ถ่ายใหม่
+                </button>
+                <button onClick={handleBack} className="flex-1 py-4 bg-green-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-green-500/30 hover:bg-green-600 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                  <FaCheck /> มุมต่อไป
+                </button>
+              </div>
+            )}
+
+            {result && !result.staged && !result.damage_checked && (
               <div className="flex gap-3 mt-1">
                 {!matched && (
                   <>
@@ -705,7 +1130,7 @@ export default function Home() {
                             originalImage: originalImage,
                             confidence: result?.prediction?.confidence || 0,
                             quality: result?.quality || {},
-                            class_details: result?.class_details,
+                            class_details: getClassDetails(result?.prediction?.label || activeAngle.modelKey),
                             damages: result?.damages || [],
                             is_manual: true
                           },
@@ -775,25 +1200,50 @@ export default function Home() {
           <input ref={batchInputRef} type="file" webkitdirectory="true" multiple className="hidden" onChange={handleBatchUpload} />
           <button onClick={() => batchInputRef.current?.click()} disabled={batchLoading} className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600/10 border border-indigo-500/30 text-indigo-700 rounded-2xl font-bold text-sm hover:bg-indigo-600/20 transition-all disabled:opacity-50">
             {batchLoading ? <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" /> : <FaImage />}
-            {batchLoading ? 'กำลังวิเคราะห์รูปจากโฟลเดอร์...' : 'อัปโหลดทั้งโฟลเดอร์ (Auto-Detect)'}
+            {batchLoading ? 'กำลังตรวจมุมจากโฟลเดอร์...' : 'อัปโหลดทั้งโฟลเดอร์ (ตรวจมุมอัตโนมัติ)'}
           </button>
         </div>
+
+        {damageQueue.length > 0 && (
+          <div className="mx-4 mt-3 lg:hidden">
+            <button
+              onClick={handlePredictAllDamages}
+              disabled={damageAllLoading || pendingDamageCount === 0}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-red-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all disabled:opacity-50"
+            >
+              {damageAllLoading ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <FaShieldAlt />
+              )}
+              {damageAllLoading ? 'กำลังทำนายรอยทั้งหมด...' : `ทำนายรอยทั้งหมด (${pendingDamageCount})`}
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-3 gap-3 p-4">
           {ANGLES.map((angle, idx) => {
             const verified = verifiedAngles[angle.id];
-            const isNext = !verified && idx === ANGLES.findIndex(a => !verifiedAngles[a.id]);
+            const queued = damageQueue.find(item => item.angleId === angle.id);
+            const displayItem = verified || queued;
+            const isNext = !displayItem && idx === ANGLES.findIndex(a => !verifiedAngles[a.id] && !damageQueue.some(item => item.angleId === a.id));
 
             return (
               <div key={angle.id} className="flex flex-col items-center">
                 <button
-                  onClick={() => !verified && handleStartCapture(angle)}
-                  disabled={!!verified}
-                  className={`relative w-full aspect-[4/3] rounded-xl border-2 overflow-hidden transition-all duration-300 flex items-center justify-center ${verified ? 'border-green-400 bg-white' : isNext ? 'border-blue-400 bg-white shadow-md' : 'border-gray-200 bg-gray-50'}`}
+                  onClick={() => {
+                    if (!displayItem) handleStartCapture(angle);
+                  }}
+                  className={`relative w-full aspect-[4/3] rounded-xl border-2 overflow-hidden transition-all duration-300 flex items-center justify-center ${verified ? 'border-green-400 bg-white' : queued ? 'border-orange-300 bg-white shadow-sm' : isNext ? 'border-blue-400 bg-white shadow-md' : 'border-gray-200 bg-gray-50'}`}
                 >
-                  {verified?.image ? (
+                  {displayItem?.image ? (
                     <>
-                      <img src={verified.image} alt={angle.label} className="w-full h-full object-cover" />
+                      <img src={displayItem.image} alt={angle.label} className="w-full h-full object-cover" />
+                      {queued && !verified && (
+                        <div className="absolute left-1 bottom-1 bg-orange-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold shadow-sm">
+                          รอทำนาย
+                        </div>
+                      )}
                       <button
                         onClick={(e) => handleRemoveVerified(e, angle.id)}
                         className="absolute top-1 right-1 w-6 h-6 bg-gray-900/60 text-white rounded-full flex items-center justify-center text-[10px] hover:bg-gray-900 transition-colors z-10"
@@ -815,10 +1265,10 @@ export default function Home() {
                 </button>
 
                 <div className="mt-1.5 flex items-center gap-1 px-1 w-full justify-center">
-                  <div className={`flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${verified ? 'bg-green-500 text-white' : 'border border-gray-300 bg-white'}`}>
+                  <div className={`flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${verified ? 'bg-green-500 text-white' : queued ? 'bg-orange-100 border border-orange-300 text-orange-500' : 'border border-gray-300 bg-white'}`}>
                     {verified && <FaCheck />}
                   </div>
-                  <span className={`text-[10px] font-bold truncate text-center ${verified ? 'text-green-700' : isNext ? 'text-blue-900' : 'text-gray-500'}`}>
+                  <span className={`text-[10px] font-bold truncate text-center ${verified ? 'text-green-700' : queued ? 'text-orange-600' : isNext ? 'text-blue-900' : 'text-gray-500'}`}>
                     {angle.label}
                   </span>
                 </div>

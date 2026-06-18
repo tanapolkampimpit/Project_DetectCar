@@ -87,27 +87,27 @@ SWAP_MAP = {
     "Back-Right":  "Back-Left",
 }
 
-# --- Class metadata: group, ชื่อไทย, ชื่ออังกฤษ ---
+# --- Class metadata: group, ชื่ออังกฤษ ---
 CLASS_GROUPS = {
-    "chassis_number":     {"group": "Document", "th_name": "เลขตัวถัง", "en_name": "Chassis Number"},
-    "dashcam":            {"group": "Accessories", "th_name": "กล้องหน้ารถ", "en_name": "Dashcam"},
-    "engine_room":        {"group": "Engine Compartment", "th_name": "ห้องเครื่อง", "en_name": "Engine Room"},
-    "inspection_document":{"group": "Document", "th_name": "เอกสารตรวจสภาพรถ", "en_name": "Inspection Document"},
-    "interior":           {"group": "Interior", "th_name": "ภายในห้องโดยสาร", "en_name": "Interior"},
-    "mileage_screen":     {"group": "Interior", "th_name": "หน้าจอกิโลเมตร", "en_name": "Mileage Screen"},
-    "others":             {"group": "Other", "th_name": "อื่นๆ", "en_name": "Others"},
-    "roof":               {"group": "Exterior", "th_name": "หลังคา", "en_name": "Roof"},
-    "spare_tire":         {"group": "Exterior", "th_name": "ยางอะไหล่", "en_name": "Spare Tire"},
-    "wheel":              {"group": "Exterior", "th_name": "ล้อรถ", "en_name": "Wheel"},
-    "exterior":           {"group": "Exterior", "th_name": "ภายนอก", "en_name": "Exterior"},
-    "Front":              {"group": "Exterior", "th_name": "ด้านหน้า", "en_name": "Front"},
-    "Front-Left":         {"group": "Exterior", "th_name": "ด้านหน้าซ้าย", "en_name": "Front-Left"},
-    "Left":               {"group": "Exterior", "th_name": "ด้านซ้าย", "en_name": "Left"},
-    "Back-Left":          {"group": "Exterior", "th_name": "ด้านหลังซ้าย", "en_name": "Back-Left"},
-    "Back":               {"group": "Exterior", "th_name": "ด้านหลัง", "en_name": "Back"},
-    "Back-Right":         {"group": "Exterior", "th_name": "ด้านหลังขวา", "en_name": "Back-Right"},
-    "Right":              {"group": "Exterior", "th_name": "ด้านขวา", "en_name": "Right"},
-    "Front-Right":        {"group": "Exterior", "th_name": "ด้านหน้าขวา", "en_name": "Front-Right"},
+    "chassis_number":     {"group": "Document", "en_name": "Chassis Number"},
+    "dashcam":            {"group": "Accessories", "en_name": "Dashcam"},
+    "engine_room":        {"group": "Engine Compartment", "en_name": "Engine Room"},
+    "inspection_document":{"group": "Document", "en_name": "Inspection Document"},
+    "interior":           {"group": "Interior", "en_name": "Interior"},
+    "mileage_screen":     {"group": "Interior", "en_name": "Mileage Screen"},
+    "others":             {"group": "Other", "en_name": "Others"},
+    "roof":               {"group": "Exterior", "en_name": "Roof"},
+    "spare_tire":         {"group": "Exterior", "en_name": "Spare Tire"},
+    "wheel":              {"group": "Exterior", "en_name": "Wheel"},
+    "exterior":           {"group": "Exterior", "en_name": "Exterior"},
+    "Front":              {"group": "Exterior", "en_name": "Front"},
+    "Front-Left":         {"group": "Exterior", "en_name": "Front-Left"},
+    "Left":               {"group": "Exterior", "en_name": "Left"},
+    "Back-Left":          {"group": "Exterior", "en_name": "Back-Left"},
+    "Back":               {"group": "Exterior", "en_name": "Back"},
+    "Back-Right":         {"group": "Exterior", "en_name": "Back-Right"},
+    "Right":              {"group": "Exterior", "en_name": "Right"},
+    "Front-Right":        {"group": "Exterior", "en_name": "Front-Right"},
 }
 
 # --- YOLO model ภาษาไทย → ชื่อ class ภาษาอังกฤษ ---
@@ -145,19 +145,6 @@ YOLO_TO_FRONTEND_MAP = {
 # --- Tire position keys (ใช้ตรวจสอบตำแหน่งล้อ) ---
 TIRE_POSITION_KEYS = ["TireFrontLeft", "TireFrontRight", "TireBackLeft", "TireBackRight"]
 
-# --- Damage label mapping: YOLO damage class → ชื่อไทย ---
-DAMAGE_LABEL_MAP = {
-    "dent": "รอยบุบ",
-    "scratch": "รอยขีดข่วน",
-    "crack": "รอยร้าว",
-    "glass_shatter": "กระจกแตก",
-    "broken_glass": "กระจกแตก",
-    "broken_light": "ไฟแตก",
-    "missing_part": "ชิ้นส่วนหลุดหาย",
-    "broken": "แตกหัก",
-    "puncture": "รอยทะลุ",
-    "tear": "รอยฉีกขาด"
-}
 
 
 # =============================================================================
@@ -194,12 +181,3 @@ def map_yolo_to_frontend(cls_name: str, expected_view: str = "") -> str:
     
     return cls_name
 
-
-# --- Auto-populate INSURANCE_ANGLE_MAP for YOLO classes ---
-# เพิ่ม YOLO class เข้าไปใน map โดยอัตโนมัติ (ถ้ายังไม่มี)
-for _cls in YOLO_CLASSES:
-    if _cls not in INSURANCE_ANGLE_MAP:
-        INSURANCE_ANGLE_MAP[_cls] = [_cls]
-    _norm = normalize_class_name(_cls)
-    if _norm not in INSURANCE_ANGLE_MAP:
-        INSURANCE_ANGLE_MAP[_norm] = [_cls]

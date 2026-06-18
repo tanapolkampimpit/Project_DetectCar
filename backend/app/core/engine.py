@@ -17,9 +17,9 @@ logger = logging.getLogger("analyze_api")
 class BatchItem:
     request_id   : str
     expected_view: str
-    img          : np.ndarray                  
-    tensor       : torch.Tensor                
-    future       : asyncio.Future              
+    img          : np.ndarray
+    tensor       : torch.Tensor
+    future       : asyncio.Future
     blur_score   : float = 0.0
     enqueue_at   : float = field(default_factory=time.monotonic)
 
@@ -87,6 +87,8 @@ class BatchInferenceEngine:
         self.loop      = loop
         self._queue: asyncio.Queue[BatchItem] = asyncio.Queue(maxsize=max_queue)
         self._tasks: list[asyncio.Task]       = []
+        self.yolo_gen_lock = threading.Lock()
+        self.yolo_damage_lock = threading.Lock()
 
     @property
     def queue_depth(self) -> int:
@@ -102,7 +104,7 @@ class BatchInferenceEngine:
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
-        
+
         while not self._queue.empty():
             item = self._queue.get_nowait()
             if not item.future.done():
@@ -129,7 +131,7 @@ class BatchInferenceEngine:
                     item = await asyncio.wait_for(self._queue.get(), timeout=remaining)
                     batch.append(item)
                 except asyncio.TimeoutError:
-                    break  
+                    break
 
             logger.debug("[Worker-%d] Dispatching batch | size=%d", worker_id, len(batch))
             await self.loop.run_in_executor(MODEL_THREAD_POOL, self._run_batch_sync, batch)
@@ -144,6 +146,7 @@ class BatchInferenceEngine:
 
     def _run_batch_sync(self, batch: list[BatchItem]):
         t_start = time.monotonic()
+        original_batch = batch
 
         try:
             # ============================================
@@ -186,11 +189,12 @@ class BatchInferenceEngine:
             if self.yolo_gen is not None:
                 try:
                     with torch.inference_mode():
-                        yolo_gen_results = self.yolo_gen(
-                            imgs_bgr,
-                            verbose=False,
-                            device=settings.DEVICE
-                        )
+                        with self.yolo_gen_lock:
+                            yolo_gen_results = self.yolo_gen(
+                                imgs_bgr,
+                                verbose=False,
+                                device=settings.DEVICE
+                            )
 
                 except Exception as e:
                     logger.warning(
@@ -219,7 +223,7 @@ class BatchInferenceEngine:
                         mapped_name = THAI_TO_EN_CLASS_MAP.get(class_name, class_name).lower()
                         if mapped_name in ["exterior", "roof", "others"]:
                             needs_damage = True
-                    
+
                     if needs_damage:
                         damage_indices.append(idx)
             else:
@@ -232,12 +236,15 @@ class BatchInferenceEngine:
                 try:
                     damage_imgs_bgr = [imgs_bgr[i] for i in damage_indices]
                     with torch.inference_mode():
-                        partial_damage_results = self.yolo_damage(
-                            damage_imgs_bgr,
-                            verbose=False,
-                            device=settings.DEVICE
-                        )
-                    
+                        with self.yolo_damage_lock:
+                            partial_damage_results = self.yolo_damage(
+                                damage_imgs_bgr,
+                                verbose=False,
+                                device=settings.DEVICE,
+                                conf=settings.DAMAGE_CONFIDENCE_THRESHOLD,
+                                imgsz=settings.DAMAGE_IMAGE_SIZE,
+                            )
+
                     for i, batch_idx in enumerate(damage_indices):
                         yolo_damage_results[batch_idx] = partial_damage_results[i]
 
@@ -258,7 +265,7 @@ class BatchInferenceEngine:
             # ============================================
             # CONVNEXT CLASSIFICATION (Gated by YOLO)
             # ============================================
-            
+
             cnn_indices = []
             if yolo_gen_results is not None:
                 for idx, yolo_out in enumerate(yolo_gen_results):
@@ -278,7 +285,7 @@ class BatchInferenceEngine:
                         mapped_name = THAI_TO_EN_CLASS_MAP.get(class_name, class_name)
                         if mapped_name.lower() in ["exterior", "others"]:
                             needs_cnn = True
-                            
+
                     if needs_cnn:
                         cnn_indices.append(idx)
             else:
@@ -288,7 +295,7 @@ class BatchInferenceEngine:
 
             if len(cnn_indices) > 0:
                 cnn_tensors = tensors[cnn_indices]
-                
+
                 with torch.inference_mode():
                     if settings.USE_GPU:
                         with torch.amp.autocast("cuda"):
@@ -412,10 +419,10 @@ class BatchInferenceEngine:
 
         finally:
 
-            for item in batch:
+            for item in original_batch:
                 backpressure.release()
 
                 item.img = None
                 item.tensor = None
 
-            del batch
+            del batch

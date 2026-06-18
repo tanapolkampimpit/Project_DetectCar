@@ -23,6 +23,7 @@ torch.set_grad_enabled(False)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings.normalize_runtime(logger)
     logger.info("System Booting | environment=%s | device=%s", settings.ENVIRONMENT, settings.DEVICE)
 
     # Load all models via the dedicated service
@@ -51,11 +52,15 @@ async def lifespan(app: FastAPI):
     await engine.stop()
     if settings.USE_GPU and hasattr(app.state, "cleanup_task"):
         app.state.cleanup_task.cancel()
+        await asyncio.gather(app.state.cleanup_task, return_exceptions=True)
         torch.cuda.empty_cache()
 
 app = FastAPI(
     title="ConnectCar API",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url=None,
+    openapi_url="/openapi.json",
 )
 
 app.add_middleware(

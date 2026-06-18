@@ -20,7 +20,7 @@ def load_models():
     try:
         state_dict = torch.load(settings.MODEL_PATH, map_location=settings.DEVICE, weights_only=True)
         
-        # Handle key differences between Model_detect_0.pth and 8_Roof.pth
+        # Handle key differences between legacy and current ConvNeXt checkpoints.
         if "fc_projection.weight" in state_dict:
             state_dict["backbone.head.fc.weight"] = state_dict.pop("fc_projection.weight")
             state_dict["backbone.head.fc.bias"] = state_dict.pop("fc_projection.bias")
