@@ -25,9 +25,6 @@ Thumbs.db
 *.pb
 *.tflite
 
-# Documentation
-*.md
-
 # Pytest / Coverage
 .pytest_cache/
 coverage.xml

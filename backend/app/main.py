@@ -2,7 +2,7 @@ import logging
 import asyncio
 import torch
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.engine import BatchInferenceEngine
 from app.services.model_loader import load_models
 from app.api.v1 import analyze, health
+from app.api.errors import http_exception_handler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,6 +71,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_exception_handler(HTTPException, http_exception_handler)
 
 app.include_router(analyze.router, prefix="/api/v1")
 app.include_router(health.router, prefix="/api/v1")

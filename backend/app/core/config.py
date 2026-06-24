@@ -9,9 +9,9 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     USE_GPU: bool = False 
     DEVICE: str = "cpu"
-    MODEL_PATH: str = "./ModelsAi/convnext_vehicle_view_classifier.pth"
-    YOLO_GEN_PATH: str = "./ModelsAi/yolo_photo_type_classifier.pt"
-    YOLO_DAMAGE_PATH: str = "./ModelsAi/yolo_damage_detector.pt"
+    MODEL_PATH: str = "./ai/convnext_vehicle_view_classifier.pth"
+    YOLO_GEN_PATH: str = "./ai/yolo_photo_type_classifier.pt"
+    YOLO_DAMAGE_PATH: str = "./ai/yolo_damage_detector.pt"
     
     BATCH_MAX_SIZE: int = 32
     BATCH_MAX_WAIT: float = 0.05
@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     BLUR_THRESHOLD: float = 50.0
     MIN_CAR_AREA_RATIO: float = 0.08
     DAMAGE_CONFIDENCE_THRESHOLD: float = 0.15
+    DAMAGE_NMS_IOU_THRESHOLD: float = 0.85
     DAMAGE_IMAGE_SIZE: int = 1280
 
     # --- Security Configs ---

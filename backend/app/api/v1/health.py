@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Request
 from app.core.engine import metrics, backpressure, BatchInferenceEngine
 from app.core.config import settings
+from app.schemas.health import HealthResponse
 
 router = APIRouter()
 
-@router.get("/health")
+@router.get("/health", response_model=HealthResponse)
 async def health(request: Request):
     engine: BatchInferenceEngine = request.app.state.engine
     stats = metrics.get_stats()

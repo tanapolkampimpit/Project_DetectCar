@@ -1,30 +1,62 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaCarSide, FaCheck, FaImage, FaTimes, FaRedo, FaShieldAlt, FaIdCard, FaFileAlt, FaPlus, FaTools } from 'react-icons/fa';
-import { MdDirectionsCar, MdOutlineDirectionsCar, MdOutlinePhotoCamera, MdSettingsInputComponent, MdQrCodeScanner } from 'react-icons/md';
-import { GiCarSeat, GiCarWheel } from 'react-icons/gi';
-import { TbCameraRotate } from 'react-icons/tb';
+import { FaCarSide, FaCheck, FaImage, FaTimes, FaRedo, FaShieldAlt, FaPlus } from 'react-icons/fa';
+import {
+  MdInfo,
+  MdLightbulb,
+  MdNorth,
+  MdNorthEast,
+  MdNorthWest,
+  MdOutlinePhotoCamera,
+  MdSouthEast,
+  MdSouthWest,
+  MdSwapHoriz,
+  MdWarning,
+} from 'react-icons/md';
+import { GiCarSeat, GiCarWheel, GiFlatTire, GiMechanicGarage } from 'react-icons/gi';
+import {
+  FaBarcode,
+  FaCamera,
+  FaCar as FaCarFront,
+  FaCarRear,
+  FaFileLines,
+  FaFileShield,
+  FaGaugeHigh,
+  FaGears,
+} from 'react-icons/fa6';
+
+function AngleViewIcon({ car = FaCarFront, arrow = MdNorth, flip = false }) {
+  const CarIcon = car;
+  const ArrowIcon = arrow;
+
+  return (
+    <span className="relative inline-flex w-6 h-6 items-center justify-center">
+      <CarIcon className={`text-[1.15em] ${flip ? 'scale-x-[-1]' : ''}`} />
+      <ArrowIcon className="absolute -right-1 -top-1 text-[0.7em] text-current opacity-80" />
+    </span>
+  );
+}
 
 // ─── Insurance-required angles (22 มุม ตามมาตรฐานประกันภัย) ────────────────
 const ANGLES = [
-  { id: 'front', label: 'ด้านหน้าตรง', desc: 'ถ่ายให้เห็นรถเต็มคัน และป้ายทะเบียนหน้าชัดเจน', icon: <MdDirectionsCar />, modelKey: 'Front', tip: 'ยืนห่างจากรถ 3–5 เมตร ตรงกลางหน้ารถ' },
-  { id: 'rear', label: 'ด้านหลังตรง', desc: 'ถ่ายให้เห็นรถเต็มคัน และป้ายทะเบียนหลังชัดเจน', icon: <MdOutlineDirectionsCar />, modelKey: 'Back', tip: 'ยืนห่างจากรถ 3–5 เมตร ตรงกลางท้ายรถ' },
-  { id: 'left', label: 'ด้านข้างซ้าย', desc: 'ถ่ายด้านซ้ายตามยาว เห็นรถตลอดคัน', icon: <FaCarSide />, modelKey: 'Left', tip: 'ยืนห่างจากรถ 3–5 เมตร ขนานด้านซ้ายรถ' },
-  { id: 'right', label: 'ด้านข้างขวา', desc: 'ถ่ายด้านขวาตามยาว เห็นรถตลอดคัน', icon: <FaCarSide style={{ transform: 'scaleX(-1)' }} />, modelKey: 'Right', tip: 'ยืนห่างจากรถ 3–5 เมตร ขนานด้านขวารถ' },
-  { id: 'roof', label: 'หลังคารถยนต์', desc: 'ถ่ายให้เห็นหลังคารถชัดเจน', icon: <span className="text-lg font-black">⬆️</span>, modelKey: 'Roof', tip: 'หาจุดที่สูงกว่ารถ หรือชูแขนถ่ายให้เห็นหลังคาเต็มพื้นที่' },
+  { id: 'front', label: 'ด้านหน้าตรง', desc: 'ถ่ายให้เห็นรถเต็มคัน และป้ายทะเบียนหน้าชัดเจน', icon: <AngleViewIcon car={FaCarFront} arrow={MdNorth} />, modelKey: 'Front', tip: 'ยืนห่างจากรถ 3–5 เมตร ตรงกลางหน้ารถ' },
+  { id: 'front-left', label: 'เฉียงหน้าด้านซ้าย', desc: 'ถ่ายมุมเฉียง 45° ด้านหน้า-ซ้าย', icon: <AngleViewIcon car={FaCarFront} arrow={MdNorthEast} />, modelKey: 'Front-Left', tip: 'ยืนมุม 45° หน้า-ซ้ายของรถ' },
+  { id: 'left', label: 'ด้านข้างซ้าย', desc: 'ถ่ายด้านซ้ายตามยาว เห็นรถตลอดคัน', icon: <AngleViewIcon car={FaCarSide} arrow={MdNorth} />, modelKey: 'Left', tip: 'ยืนห่างจากรถ 3–5 เมตร ขนานด้านซ้ายรถ' },
+  { id: 'back-left', label: 'เฉียงหลังด้านซ้าย', desc: 'ถ่ายมุมเฉียง 45° ด้านหลัง-ซ้าย', icon: <AngleViewIcon car={FaCarRear} arrow={MdSouthWest} />, modelKey: 'Back-Left', tip: 'ยืนมุม 45° หลัง-ซ้ายของรถ' },
+  { id: 'rear', label: 'ด้านหลังตรง', desc: 'ถ่ายให้เห็นรถเต็มคัน และป้ายทะเบียนหลังชัดเจน', icon: <AngleViewIcon car={FaCarRear} arrow={MdNorth} />, modelKey: 'Back', tip: 'ยืนห่างจากรถ 3–5 เมตร ตรงกลางท้ายรถ' },
+  { id: 'back-right', label: 'เฉียงหลังด้านขวา', desc: 'ถ่ายมุมเฉียง 45° ด้านหลัง-ขวา', icon: <AngleViewIcon car={FaCarRear} arrow={MdSouthEast} />, modelKey: 'Back-Right', tip: 'ยืนมุม 45° หลัง-ขวาของรถ' },
+  { id: 'right', label: 'ด้านข้างขวา', desc: 'ถ่ายด้านขวาตามยาว เห็นรถตลอดคัน', icon: <AngleViewIcon car={FaCarSide} arrow={MdNorth} flip />, modelKey: 'Right', tip: 'ยืนห่างจากรถ 3–5 เมตร ขนานด้านขวารถ' },
+  { id: 'front-right', label: 'เฉียงหน้าด้านขวา', desc: 'ถ่ายมุมเฉียง 45° ด้านหน้า-ขวา', icon: <AngleViewIcon car={FaCarFront} arrow={MdNorthWest} />, modelKey: 'Front-Right', tip: 'ยืนมุม 45° หน้า-ขวาของรถ' },
+  { id: 'roof', label: 'หลังคารถยนต์', desc: 'ถ่ายให้เห็นหลังคารถชัดเจน', icon: <AngleViewIcon car={FaCarFront} arrow={MdNorth} />, modelKey: 'Roof', tip: 'หาจุดที่สูงกว่ารถ หรือชูแขนถ่ายให้เห็นหลังคาเต็มพื้นที่' },
+  { id: 'engine_compartment', label: 'ห้องเครื่องยนต์', desc: 'ถ่ายภาพห้องเครื่อง', icon: <GiMechanicGarage />, modelKey: 'EngineCompartment', tip: 'เปิดฝากระโปรงหน้า ถ่ายให้เห็นภาพรวมของห้องเครื่อง' },
   { id: 'interior', label: 'ภายใน/อุปกรณ์ตกแต่ง', desc: 'ถ่ายภาพคอนโซลหน้า และภายในรถ', icon: <GiCarSeat />, modelKey: 'Interior', tip: 'เปิดประตูถ่ายให้เห็นคอนโซล เบาะ และอุปกรณ์ภายใน' },
-  { id: 'spare_tire', label: 'ยางอะไหล่', desc: 'ถ่ายภาพยางอะไหล่ (ถ้ามี)', icon: <GiCarWheel />, modelKey: 'SpareTire', tip: 'ถ่ายให้เห็นตัวยางและสภาพของยางอะไหล่' },
-  { id: 'chassis', label: 'เลขตัวถังรถยนต์', desc: 'ถ่ายภาพเลขตัวถังให้ชัดเจน', icon: <FaIdCard />, modelKey: 'ChassisNumber', tip: 'หาตำแหน่งเลขตัวถัง (มักอยู่ที่เสาประตูหรือห้องเครื่อง) แล้วถ่ายให้ชัดเจน' },
-  { id: 'accessories', label: 'กรณีมีอุปกรณ์ตกแต่ง เช่นล้อแม็กซ์ เครื่องเสียง', desc: 'อุปกรณ์ตกแต่งเพิ่มเติม', icon: <FaTools />, modelKey: 'Accessories', tip: 'ถ่ายเจาะจงอุปกรณ์ที่ต้องการระบุในกรมธรรม์' },
-  { id: 'dashcam', label: 'กล้องติดหน้ารถ', desc: 'ถ่ายภาพกล้องที่ติดตั้งในรถ', icon: <MdSettingsInputComponent />, modelKey: 'Dashcam', tip: 'ถ่ายให้เห็นตัวกล้องที่ติดตั้งอยู่บนกระจกหรือคอนโซล' },
-  { id: 'front-right', label: 'เฉียงหน้าด้านขวา', desc: 'ถ่ายมุมเฉียง 45° ด้านหน้า-ขวา', icon: <span className="text-lg font-black">↖</span>, modelKey: 'Front-Right', tip: 'ยืนมุม 45° หน้า-ขวาของรถ' },
-  { id: 'front-left', label: 'เฉียงหน้าด้านซ้าย', desc: 'ถ่ายมุมเฉียง 45° ด้านหน้า-ซ้าย', icon: <span className="text-lg font-black">↗</span>, modelKey: 'Front-Left', tip: 'ยืนมุม 45° หน้า-ซ้ายของรถ' },
-  { id: 'back-right', label: 'เฉียงหลังด้านขวา', desc: 'ถ่ายมุมเฉียง 45° ด้านหลัง-ขวา', icon: <span className="text-lg font-black">↘</span>, modelKey: 'Back-Right', tip: 'ยืนมุม 45° หลัง-ขวาของรถ' },
-  { id: 'back-left', label: 'เฉียงหลังด้านซ้าย', desc: 'ถ่ายมุมเฉียง 45° ด้านหลัง-ซ้าย', icon: <span className="text-lg font-black">↙</span>, modelKey: 'Back-Left', tip: 'ยืนมุม 45° หลัง-ซ้ายของรถ' },
-  { id: 'odometer', label: 'จอเลขไมล์', desc: 'ถ่ายภาพหน้าปัดเรือนไมล์', icon: <MdQrCodeScanner />, modelKey: 'Odometer', tip: 'สตาร์ทรถหรือบิดกุญแจให้เห็นตัวเลขไมล์ชัดเจน' },
-  { id: 'tax_sticker', label: 'แผ่นป้ายภาษี', desc: 'ถ่ายภาพป้ายภาษีรถยนต์', icon: <FaFileAlt />, modelKey: 'TaxSticker', tip: 'ถ่ายให้เห็นปีภาษีและทะเบียนชัดเจน' },
-  { id: 'registration_doc', label: 'รายการจดทะเบียน', desc: 'ถ่ายภาพเล่มทะเบียนรถ', icon: <FaFileAlt />, modelKey: 'RegistrationDoc', tip: 'ถ่ายให้เห็นรายละเอียดในเล่มทะเบียนชัดเจน' },
-  { id: 'engine_compartment', label: 'ห้องเครื่องยนต์', desc: 'ถ่ายภาพห้องเครื่อง', icon: <FaTools />, modelKey: 'EngineCompartment', tip: 'เปิดฝากระโปรงหน้า ถ่ายให้เห็นภาพรวมของห้องเครื่อง' },
+  { id: 'odometer', label: 'จอเลขไมล์', desc: 'ถ่ายภาพหน้าปัดเรือนไมล์', icon: <FaGaugeHigh />, modelKey: 'Odometer', tip: 'สตาร์ทรถหรือบิดกุญแจให้เห็นตัวเลขไมล์ชัดเจน' },
+  { id: 'chassis', label: 'เลขตัวถังรถยนต์', desc: 'ถ่ายภาพเลขตัวถังให้ชัดเจน', icon: <FaBarcode />, modelKey: 'ChassisNumber', tip: 'หาตำแหน่งเลขตัวถัง (มักอยู่ที่เสาประตูหรือห้องเครื่อง) แล้วถ่ายให้ชัดเจน' },
+  { id: 'tax_sticker', label: 'แผ่นป้ายภาษี', desc: 'ถ่ายภาพป้ายภาษีรถยนต์', icon: <FaFileShield />, modelKey: 'TaxSticker', tip: 'ถ่ายให้เห็นปีภาษีและทะเบียนชัดเจน' },
+  { id: 'registration_doc', label: 'รายการจดทะเบียน', desc: 'ถ่ายภาพเล่มทะเบียนรถ', icon: <FaFileLines />, modelKey: 'RegistrationDoc', tip: 'ถ่ายให้เห็นรายละเอียดในเล่มทะเบียนชัดเจน' },
+  { id: 'dashcam', label: 'กล้องติดหน้ารถ', desc: 'ถ่ายภาพกล้องที่ติดตั้งในรถ', icon: <FaCamera />, modelKey: 'Dashcam', tip: 'ถ่ายให้เห็นตัวกล้องที่ติดตั้งอยู่บนกระจกหรือคอนโซล' },
+  { id: 'accessories', label: 'กรณีมีอุปกรณ์ตกแต่ง เช่นล้อแม็กซ์ เครื่องเสียง', desc: 'อุปกรณ์ตกแต่งเพิ่มเติม', icon: <FaGears />, modelKey: 'Accessories', tip: 'ถ่ายเจาะจงอุปกรณ์ที่ต้องการระบุในกรมธรรม์' },
+  { id: 'spare_tire', label: 'ยางอะไหล่', desc: 'ถ่ายภาพยางอะไหล่ (ถ้ามี)', icon: <GiFlatTire />, modelKey: 'SpareTire', tip: 'ถ่ายให้เห็นตัวยางและสภาพของยางอะไหล่' },
   { id: 'tire_fl', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหน้าซ้าย', desc: 'ล้อหน้าซ้าย', icon: <GiCarWheel />, modelKey: 'TireFrontLeft', tip: 'ถ่ายเจาะจงล้อหน้าซ้าย ให้เห็นยี่ห้อ ขนาด และปีผลิต' },
   { id: 'tire_fr', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหน้าขวา', desc: 'ล้อหน้าขวา', icon: <GiCarWheel />, modelKey: 'TireFrontRight', tip: 'ถ่ายเจาะจงล้อหน้าขวา ให้เห็นยี่ห้อ ขนาด และปีผลิต' },
   { id: 'tire_bl', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหลังซ้าย', desc: 'ล้อหลังซ้าย', icon: <GiCarWheel />, modelKey: 'TireBackLeft', tip: 'ถ่ายเจาะจงล้อหลังซ้าย ให้เห็นยี่ห้อ ขนาด และปีผลิต' },
@@ -200,8 +232,30 @@ export default function Home() {
         delete next[angleId];
         return next;
       });
-      setDamageQueue(prev => prev.filter(item => item.angleId !== angleId && item.originalAngleId !== angleId));
+      setDamageQueue(prev => prev.filter(item => item.isDuplicate || (item.angleId !== angleId && item.originalAngleId !== angleId)));
     }
+  };
+
+  const handleRemoveDuplicate = (e, duplicateId) => {
+    e.stopPropagation();
+    setDuplicateImages(prev => prev.filter(item => item.id !== duplicateId));
+    setDamageQueue(prev => prev.filter(item => item.duplicateId !== duplicateId));
+  };
+
+  const updateDuplicateImage = (duplicateId, updates) => {
+    if (!duplicateId) return;
+    setDuplicateImages(prev => prev.map(item => (
+      item.id === duplicateId
+        ? {
+          ...item,
+          ...updates,
+          quality: {
+            ...(item.quality || {}),
+            ...(updates.quality || {}),
+          },
+        }
+        : item
+    )));
   };
 
   const stageImageForDamage = async (file) => {
@@ -239,7 +293,7 @@ export default function Home() {
         health: healthData,
       };
 
-      setDamageQueue(prev => [queuedImage, ...prev.filter(item => item.angleId !== activeAngle.id && item.originalAngleId !== activeAngle.id)]);
+      setDamageQueue(prev => [queuedImage, ...prev.filter(item => item.isDuplicate || (item.angleId !== activeAngle.id && item.originalAngleId !== activeAngle.id))]);
       setResult({ staged: true, message: 'รูปพร้อมสำหรับทำนายรอยแล้ว' });
       await predictViewForItem(queuedImage);
     } catch (err) {
@@ -374,28 +428,37 @@ export default function Home() {
           : row
       )));
 
-      setVerifiedAngles(prev => ({
-        ...prev,
-        [assignedAngle.id]: {
-          ...(prev[assignedAngle.id] || {}),
-          image: imageWithBoxes,
-          originalImage: item.originalImage,
-          confidence: predictedConfidence || prev[assignedAngle.id]?.confidence || 100,
-          damages: data.damages || [],
-          quality: {
-            ...(item.viewResult?.quality || {}),
-            ...(data.quality || {}),
-          },
-          class_details: getClassDetails(predictedLabel || assignedAngle.modelKey),
-          prediction: item.viewResult?.prediction,
-          match: item.viewResult?.match,
-          is_car: item.viewResult?.is_car,
-          time_ms: data.time_ms || 0,
-          original_expected: item.originalAngle?.modelKey || item.angle.modelKey,
-          auto_switched: item.auto_switched || false,
-          original_angle_label: item.originalAngle?.label,
+      const verifiedPayload = {
+        image: imageWithBoxes,
+        originalImage: item.originalImage,
+        confidence: predictedConfidence || 100,
+        damages: data.damages || [],
+        quality: {
+          ...(item.viewResult?.quality || {}),
+          ...(data.quality || {}),
         },
-      }));
+        class_details: getClassDetails(predictedLabel || assignedAngle.modelKey),
+        prediction: item.viewResult?.prediction,
+        match: item.viewResult?.match,
+        is_car: item.viewResult?.is_car,
+        time_ms: data.time_ms || 0,
+        original_expected: item.originalAngle?.modelKey || item.angle.modelKey,
+        auto_switched: item.auto_switched || false,
+        original_angle_label: item.originalAngle?.label,
+      };
+
+      if (item.isDuplicate) {
+        updateDuplicateImage(item.duplicateId, verifiedPayload);
+      } else {
+        setVerifiedAngles(prev => ({
+          ...prev,
+          [assignedAngle.id]: {
+            ...(prev[assignedAngle.id] || {}),
+            ...verifiedPayload,
+            confidence: predictedConfidence || prev[assignedAngle.id]?.confidence || 100,
+          },
+        }));
+      }
 
       if (activeAngle?.id === item.angleId || activeAngle?.id === item.originalAngleId) {
         setCapturedImage(imageWithBoxes);
@@ -431,24 +494,32 @@ export default function Home() {
         : row
     )));
 
-    setVerifiedAngles(prev => ({
-      ...prev,
-      [assignedAngle.id]: {
-        ...(prev[assignedAngle.id] || {}),
-        image: item.image,
-        originalImage: item.originalImage,
-        confidence: predictedConfidence,
-        damages: [],
-        quality: item.viewResult?.quality || item.health || {},
-        class_details: getClassDetails(predictedLabel),
-        prediction: item.viewResult?.prediction,
-        match: item.viewResult?.match,
-        is_car: item.viewResult?.is_car,
-        original_expected: item.originalAngle?.modelKey || assignedAngle.modelKey,
-        auto_switched: item.auto_switched || false,
-        original_angle_label: item.originalAngle?.label,
-      },
-    }));
+    const verifiedPayload = {
+      image: item.image,
+      originalImage: item.originalImage,
+      confidence: predictedConfidence,
+      damages: [],
+      quality: item.viewResult?.quality || item.health || {},
+      class_details: getClassDetails(predictedLabel),
+      prediction: item.viewResult?.prediction,
+      match: item.viewResult?.match,
+      is_car: item.viewResult?.is_car,
+      original_expected: item.originalAngle?.modelKey || assignedAngle.modelKey,
+      auto_switched: item.auto_switched || false,
+      original_angle_label: item.originalAngle?.label,
+    };
+
+    if (item.isDuplicate) {
+      updateDuplicateImage(item.duplicateId, verifiedPayload);
+    } else {
+      setVerifiedAngles(prev => ({
+        ...prev,
+        [assignedAngle.id]: {
+          ...(prev[assignedAngle.id] || {}),
+          ...verifiedPayload,
+        },
+      }));
+    }
 
     if (activeAngle?.id === item.angleId || activeAngle?.id === item.originalAngleId) {
       setResult({
@@ -604,11 +675,53 @@ export default function Home() {
           }
 
           if (assignedAngle && newVerified[assignedAngle.id]) {
+            const duplicateId = `duplicate-${assignedAngle.id}-${Date.now()}-${newDuplicates.length}`;
+            const viewResult = {
+              prediction: item.resItem.prediction || {
+                label: item.resItem.predicted_label,
+                confidence: item.resItem.confidence,
+              },
+              match: item.resItem.match,
+              is_car: item.resItem.is_car,
+              quality: item.resItem.quality || {},
+              time_ms: item.resItem.time_ms || 0,
+            };
+
             newDuplicates.push({
+              id: duplicateId,
+              angleId: assignedAngle.id,
               image: fileObjUrl,
+              originalImage: fileObjUrl,
               label: assignedAngle.label,
               confidence: item.resItem.confidence,
+              quality: item.resItem.quality || {},
+              class_details: getClassDetails(item.resItem.predicted_label || item.resItem.prediction?.label || assignedAngle.modelKey),
+              damages: item.resItem.damages || [],
+              prediction: viewResult.prediction,
+              match: viewResult.match,
+              is_car: viewResult.is_car,
+              duplicate: true,
             });
+
+            if (isDamageModelKeyEligible(assignedAngle.modelKey)) {
+              newDamageQueueItems.push({
+                id: `batch-${duplicateId}`,
+                duplicateId,
+                isDuplicate: true,
+                angleId: assignedAngle.id,
+                originalAngleId: item.expectedAngle?.id || assignedAngle.id,
+                angle: assignedAngle,
+                originalAngle: item.expectedAngle || assignedAngle,
+                file: item.file,
+                image: fileObjUrl,
+                originalImage: fileObjUrl,
+                damages: item.resItem.damages || [],
+                status: 'ready',
+                viewStatus: 'done',
+                viewResult,
+                auto_switched: item.resItem.needs_swap || false,
+              });
+            }
           } else if (assignedAngle && !newVerified[assignedAngle.id]) {
             const viewResult = {
               prediction: item.resItem.prediction || {
@@ -655,7 +768,7 @@ export default function Home() {
         }
 
         // 2. จัดการรูปที่ไม่ใช่รถ (Auto-Route ไปยังช่องว่างของกลุ่ม Non-AI)
-        const NON_AI_VIEW_IDS = ['interior', 'spare_tire', 'chassis', 'accessories', 'dashcam', 'odometer', 'tax_sticker', 'registration_doc', 'engine_compartment', 'tire_fl', 'tire_fr', 'tire_bl', 'tire_br', 'others'];
+        const NON_AI_VIEW_IDS = ['engine_compartment', 'interior', 'odometer', 'chassis', 'tax_sticker', 'registration_doc', 'dashcam', 'accessories', 'spare_tire', 'tire_fl', 'tire_fr', 'tire_bl', 'tire_br', 'others'];
         nonVehicleFiles.forEach(item => {
           const emptySlotId = NON_AI_VIEW_IDS.find(id => !newVerified[id]);
           if (emptySlotId) {
@@ -673,10 +786,15 @@ export default function Home() {
         setDuplicateImages(newDuplicates);
         setVerifiedAngles(newVerified);
         if (newDamageQueueItems.length > 0) {
-          const queuedAngleIds = new Set(newDamageQueueItems.map(item => item.angleId));
+          const queuedAngleIds = new Set(newDamageQueueItems.filter(item => !item.isDuplicate).map(item => item.angleId));
+          const queuedDuplicateIds = new Set(newDamageQueueItems.filter(item => item.isDuplicate).map(item => item.duplicateId));
           setDamageQueue(prev => [
             ...newDamageQueueItems,
-            ...prev.filter(item => !queuedAngleIds.has(item.angleId)),
+            ...prev.filter(item => (
+              item.isDuplicate
+                ? !queuedDuplicateIds.has(item.duplicateId)
+                : !queuedAngleIds.has(item.angleId)
+            )),
           ]);
         }
 
@@ -733,110 +851,117 @@ export default function Home() {
 
             return (
               <div key={item.id} className="bg-white border border-red-100 rounded-2xl overflow-hidden shadow-sm">
-              <div className="bg-red-50/50 px-4 py-3 border-b border-red-50 flex justify-between items-center">
-                <span className="font-bold text-red-900">{item.angle?.label || 'รูปภาพ'}</span>
-                {item.status === 'done' ? (
-                  <span className="text-xs bg-red-500 text-white px-2 py-1 rounded-full font-bold shadow-sm shadow-red-500/30">
-                    พบ {item.damages.length} จุด
-                  </span>
-                ) : !canPredictDamage ? (
-                  <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full font-bold">
-                    ข้าม
-                  </span>
-                ) : (
-                  <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full font-bold">
-                    รอทำนาย
-                  </span>
-                )}
-              </div>
-              <div 
-                className="bg-gray-900 flex justify-center relative group p-2 cursor-pointer"
-                onClick={() => { setZoomImage(item.originalImage || item.image); setZoomScale(1); }}
-              >
-                <img src={item.image} alt={item.angle?.label} className="w-full h-auto max-h-[300px] object-contain rounded-lg" />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg m-2">
-                  <span className="text-white font-bold text-sm bg-black/50 px-3 py-1 rounded-full backdrop-blur-sm shadow-lg flex items-center gap-2">
-                    <FaImage /> ดูรูปต้นฉบับ
-                  </span>
-                </div>
-              </div>
-              <div className="p-4 bg-white">
-                {!canPredictDamage && (
-                  <div className="mb-3 flex flex-col gap-2">
-                    <p className="text-xs text-gray-400 font-medium">ไม่ใช่กลุ่มหลังคา/ภายนอก/อื่นๆ จึงไม่ส่งตรวจรอย</p>
-                    {item.status !== 'skipped' && item.status !== 'done' && (
-                      <button
-                        onClick={() => confirmItemWithoutDamage(item)}
-                        className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold text-sm hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
-                      >
-                        <FaCheck /> ยืนยัน ไม่ต้องตรวจรอย
-                      </button>
+                <div className="bg-red-50/50 px-4 py-3 border-b border-red-50 flex justify-between items-center">
+                  <span className="font-bold text-red-900 flex items-center gap-2">
+                    {item.angle?.label || 'รูปภาพ'}
+                    {item.isDuplicate && (
+                      <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">
+                        รูปซ้ำ
+                      </span>
                     )}
-                  </div>
-                )}
-
-                {canPredictDamage && item.status !== 'done' && (
-                  <button
-                    onClick={() => predictDamageForItem(item)}
-                    disabled={damageAllLoading || item.status === 'loading' || item.viewStatus === 'loading'}
-                    className="w-full py-3 bg-red-500 text-white rounded-xl font-bold text-sm hover:bg-red-600 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
-                  >
-                    {item.status === 'loading' ? (
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <FaShieldAlt />
-                    )}
-                    {item.viewStatus === 'loading' ? 'รอตรวจมุม...' : item.status === 'loading' ? 'กำลังทำนายรอย...' : 'ทำนายรอย'}
-                  </button>
-                )}
-
-                {item.status === 'error' && (
-                  <p className="mt-2 text-xs text-red-500 font-medium">{item.error}</p>
-                )}
-
-                <div className="mb-3">
-                  {item.viewResult ? (
-                    <div className={`rounded-xl px-3 py-2 text-xs font-bold ${item.viewResult.match && item.viewResult.is_car ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-yellow-50 text-yellow-700 border border-yellow-100'}`}>
-                      AI ทาย: {LABEL_TH[item.viewResult.prediction?.label] || item.viewResult.prediction?.label || 'Unknown'} · {Math.round(item.viewResult.prediction?.confidence || 0)}%
-                    </div>
+                  </span>
+                  {item.status === 'done' ? (
+                    <span className="text-xs bg-red-500 text-white px-2 py-1 rounded-full font-bold shadow-sm shadow-red-500/30">
+                      พบ {item.damages.length} จุด
+                    </span>
+                  ) : !canPredictDamage ? (
+                    <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full font-bold">
+                      ข้าม
+                    </span>
                   ) : (
+                    <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full font-bold">
+                      รอทำนาย
+                    </span>
+                  )}
+                </div>
+                <div
+                  className="bg-gray-50 flex justify-center relative group p-2 cursor-pointer"
+                  onClick={() => { setZoomImage(item.originalImage || item.image); setZoomScale(1); }}
+                >
+                  <img src={item.image} alt={item.angle?.label} className="w-full h-auto max-h-[360px] object-contain rounded-lg" />
+                  <div className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-white font-bold text-xs bg-gray-900/70 px-2.5 py-1 rounded-full backdrop-blur-sm shadow-lg flex items-center gap-1.5">
+                      <FaImage /> ดูรูปต้นฉบับ
+                    </span>
+                  </div>
+                </div>
+                <div className="p-4 bg-white">
+                  {!canPredictDamage && (
+                    <div className="mb-3 flex flex-col gap-2">
+                      <p className="text-xs text-gray-400 font-medium">ไม่ใช่กลุ่มหลังคา/ภายนอก/อื่นๆ จึงไม่ส่งตรวจรอย</p>
+                      {item.status !== 'skipped' && item.status !== 'done' && (
+                        <button
+                          onClick={() => confirmItemWithoutDamage(item)}
+                          className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold text-sm hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+                        >
+                          <FaCheck /> ยืนยัน ไม่ต้องตรวจรอย
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {canPredictDamage && item.status !== 'done' && (
                     <button
-                      onClick={() => predictViewForItem(item)}
-                      disabled={item.viewStatus === 'loading'}
-                      className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                      onClick={() => predictDamageForItem(item)}
+                      disabled={damageAllLoading || item.status === 'loading' || item.viewStatus === 'loading'}
+                      className="w-full py-3 bg-red-500 text-white rounded-xl font-bold text-sm hover:bg-red-600 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
                     >
-                      {item.viewStatus === 'loading' ? (
+                      {item.status === 'loading' ? (
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       ) : (
-                        <FaCheck />
+                        <FaShieldAlt />
                       )}
-                      {item.viewStatus === 'loading' ? 'กำลังตรวจมุม...' : 'ตรวจมุม'}
+                      {item.viewStatus === 'loading' ? 'รอตรวจมุม...' : item.status === 'loading' ? 'กำลังทำนายรอย...' : 'ทำนายรอย'}
                     </button>
                   )}
-                  {item.viewStatus === 'error' && (
-                    <p className="mt-2 text-xs text-red-500 font-medium">{item.viewError}</p>
+
+                  {item.status === 'error' && (
+                    <p className="mt-2 text-xs text-red-500 font-medium">{item.error}</p>
+                  )}
+
+                  <div className="mb-3">
+                    {item.viewResult ? (
+                      <div className={`rounded-xl px-3 py-2 text-xs font-bold ${item.viewResult.match && item.viewResult.is_car ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-indigo-50 text-yellow-700 border border-indigo-100'}`}>
+                        AI ทาย: {LABEL_TH[item.viewResult.prediction?.label] || item.viewResult.prediction?.label || 'Unknown'} · {Math.round(item.viewResult.prediction?.confidence || 0)}%
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => predictViewForItem(item)}
+                        disabled={item.viewStatus === 'loading'}
+                        className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                      >
+                        {item.viewStatus === 'loading' ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <FaCheck />
+                        )}
+                        {item.viewStatus === 'loading' ? 'กำลังตรวจมุม...' : 'ตรวจมุม'}
+                      </button>
+                    )}
+                    {item.viewStatus === 'error' && (
+                      <p className="mt-2 text-xs text-red-500 font-medium">{item.viewError}</p>
+                    )}
+                  </div>
+
+                  {item.status === 'done' && item.damages.length === 0 && (
+                    <p className="text-sm text-gray-400 font-medium">ไม่พบรอยตำหนิในรูปนี้</p>
+                  )}
+
+                  {item.damages.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {item.damages.map((dmg, idx) => (
+                        <div key={idx} className="flex items-center gap-2 bg-white border border-gray-200 shadow-sm px-2 py-1.5 rounded-xl">
+                          {dmg.image_base64 && <img src={dmg.image_base64} alt={dmg.label} className="w-10 h-10 object-cover rounded-lg border border-gray-100" />}
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-gray-800">{dmg.label}</span>
+                            <span className="text-[10px] text-gray-400">มั่นใจ {dmg.confidence}%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-
-                {item.status === 'done' && item.damages.length === 0 && (
-                  <p className="text-sm text-gray-400 font-medium">ไม่พบรอยตำหนิในรูปนี้</p>
-                )}
-
-                {item.damages.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {item.damages.map((dmg, idx) => (
-                      <div key={idx} className="flex items-center gap-2 bg-white border border-gray-200 shadow-sm px-2 py-1.5 rounded-xl">
-                        {dmg.image_base64 && <img src={dmg.image_base64} alt={dmg.label} className="w-10 h-10 object-cover rounded-lg border border-gray-100" />}
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold text-gray-800">{dmg.label}</span>
-                          <span className="text-[10px] text-gray-400">มั่นใจ {dmg.confidence}%</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
-            </div>
             );
           })
         )}
@@ -846,22 +971,22 @@ export default function Home() {
 
   const zoomModal = zoomImage ? (
     <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
-      <button 
+      <button
         onClick={() => setZoomImage(null)}
         className="absolute top-4 right-4 text-white bg-white/10 w-10 h-10 rounded-full flex items-center justify-center text-xl hover:bg-white/20 z-50 backdrop-blur-md"
       >
         <FaTimes />
       </button>
-      
+
       <div className="w-full h-full overflow-auto flex items-center justify-center relative">
-        <img 
-          src={zoomImage} 
-          alt="Zoomed Original" 
-          className="max-w-none transition-transform duration-200" 
+        <img
+          src={zoomImage}
+          alt="Zoomed Original"
+          className="max-w-none transition-transform duration-200"
           style={{ transform: `scale(${zoomScale})`, transformOrigin: 'center' }}
         />
       </div>
-      
+
       <div className="absolute bottom-8 flex gap-4 bg-black/60 p-2 rounded-full backdrop-blur-md z-50 items-center">
         <button onClick={() => setZoomScale(s => Math.max(0.5, s - 0.5))} className="w-10 h-10 text-white flex items-center justify-center text-2xl font-bold bg-white/10 rounded-full hover:bg-white/20">-</button>
         <div className="w-12 flex items-center justify-center text-white font-bold">{Math.round(zoomScale * 100)}%</div>
@@ -891,14 +1016,14 @@ export default function Home() {
           </p>
 
           <button
-            onClick={() => navigate('/summarie', { state: { verifiedAngles } })}
+            onClick={() => navigate('/summarie', { state: { verifiedAngles, duplicateImages } })}
             className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-base shadow-xl shadow-blue-500/30 hover:bg-blue-700 active:scale-[0.98] transition-all mb-5 z-10"
           >
             ดูหน้าสรุปผลการทำนาย
           </button>
 
           <button
-            onClick={() => { setVerifiedAngles({}); setDamageQueue([]); setScreen('checklist'); }}
+            onClick={() => { setVerifiedAngles({}); setDuplicateImages([]); setDamageQueue([]); setScreen('checklist'); }}
             className="text-gray-400 font-bold text-sm hover:text-gray-600 z-10"
           >
             เริ่มถ่ายใหม่อีกครั้ง
@@ -912,13 +1037,13 @@ export default function Home() {
 
   // ── Capture screen ──────────────────────────────────────────────────────
   if (screen === 'capture' && activeAngle) {
-    const activeDamageItem = damageQueue.find(item => item.angleId === activeAngle.id || item.originalAngleId === activeAngle.id);
+    const activeDamageItem = damageQueue.find(item => !item.isDuplicate && (item.angleId === activeAngle.id || item.originalAngleId === activeAngle.id));
     const canPredictActiveDamage = isDamageEligible(activeDamageItem);
     const matched = result?.match && result?.is_car;
     const notCar = result?.is_car === false;
     // ปรับเงื่อนไข wrongAngle: ต้องเป็นรถ และ Label ไม่ตรงกับที่คาดหวัง
     const wrongAngle = result?.is_car && result?.prediction?.label !== activeAngle.modelKey;
-    // เพิ่มเงื่อนไข lowConfidence: ถ้า Label ตรง แต่ความมั่นใจไม่ถึงเกณฑ์
+    // เพิ่มเงื่อนไข lowConfidence: ถ้า Label ตรง แต่ AI มั่นใจไม่ถึงเกณฑ์
     const lowConfidence = result?.is_car && result?.prediction?.label === activeAngle.modelKey && !result?.match;
     const topPred = result?.prediction;
 
@@ -941,7 +1066,7 @@ export default function Home() {
 
           <div className="relative mx-4 rounded-3xl overflow-hidden bg-gray-900 flex-shrink-0" style={{ aspectRatio: '4/3' }}>
             {capturedImage ? (
-              <div 
+              <div
                 className="w-full h-full relative group cursor-pointer"
                 onClick={() => { setZoomImage(originalImage || capturedImage); setZoomScale(1); }}
               >
@@ -1025,19 +1150,19 @@ export default function Home() {
             )}
 
             {wrongAngle && topPred && (
-              <StatusCard color="yellow" icon="↔" title="พบมุมไม่ตรง" desc={`AI เห็นว่าเป็น ${LABEL_TH[topPred.label] || topPred.label} (${Math.round(topPred.confidence)}%)`} />
+              <StatusCard color="yellow" icon={<MdSwapHoriz />} title="พบมุมไม่ตรง" desc={`AI เห็นว่าเป็น ${LABEL_TH[topPred.label] || topPred.label} (${Math.round(topPred.confidence)}%)`} />
             )}
 
             {result?.auto_switched && (
-              <StatusCard color="yellow" icon="↔" title="ย้ายช่องให้อัตโนมัติแล้ว" desc={`รูปนี้ถูกนำไปไว้ที่ "${result.auto_switched_to}"`} />
+              <StatusCard color="yellow" icon={<MdSwapHoriz />} title="ย้ายช่องให้อัตโนมัติแล้ว" desc={`รูปนี้ถูกนำไปไว้ที่ "${result.auto_switched_to}"`} />
             )}
 
             {lowConfidence && topPred && (
-              <StatusCard color="yellow" icon="⚠️" title={`ภาพยังไม่ชัดเจนพอ`} desc={`AI เห็นว่าเป็น ${LABEL_TH[topPred.label] || topPred.label} แต่ความมั่นใจต่ำ (${Math.round(topPred.confidence)}%) กรุณาขยับมุมหรือถ่ายในที่สว่างขึ้น`} />
+              <StatusCard color="yellow" icon={<MdWarning />} title={`ภาพยังไม่ชัดเจนพอ`} desc={`AI เห็นว่าเป็น ${LABEL_TH[topPred.label] || topPred.label} แต่ AI มั่นใจต่ำ (${Math.round(topPred.confidence)}%) กรุณาขยับมุมหรือถ่ายในที่สว่างขึ้น`} />
             )}
 
             {matched && (
-              <StatusCard color="green" icon={<FaCheck />} title={`ตรงมุม "${activeAngle.label}" แล้ว!`} desc={`ความมั่นใจ ${Math.round(result.prediction.confidence)}% · คุณภาพภาพผ่าน`} />
+              <StatusCard color="green" icon={<FaCheck />} title={`ตรงมุม "${activeAngle.label}" แล้ว!`} desc={`AI มั่นใจ ${Math.round(result.prediction.confidence)}% · คุณภาพภาพผ่าน`} />
             )}
 
             {activeDamageItem && activeDamageItem.status !== 'done' && (
@@ -1048,7 +1173,7 @@ export default function Home() {
                       setCapturedImage(null);
                       setOriginalImage(null);
                       setResult(null);
-                      setDamageQueue(prev => prev.filter(item => item.angleId !== activeAngle.id && item.originalAngleId !== activeAngle.id));
+                      setDamageQueue(prev => prev.filter(item => item.isDuplicate || (item.angleId !== activeAngle.id && item.originalAngleId !== activeAngle.id)));
                       fileInputRef.current?.click();
                     }}
                     className="flex-1 flex items-center justify-center gap-2 py-4 bg-white/10 text-white rounded-2xl font-bold text-sm hover:bg-white/20 transition-all"
@@ -1100,14 +1225,14 @@ export default function Home() {
                     setCapturedImage(null);
                     setOriginalImage(null);
                     setResult(null);
-                    setDamageQueue(prev => prev.filter(item => item.angleId !== activeAngle.id && item.originalAngleId !== activeAngle.id));
+                    setDamageQueue(prev => prev.filter(item => item.isDuplicate || (item.angleId !== activeAngle.id && item.originalAngleId !== activeAngle.id)));
                     fileInputRef.current?.click();
                   }}
                   className="flex-1 flex items-center justify-center gap-2 py-4 bg-white/10 text-white rounded-2xl font-bold text-sm hover:bg-white/20 transition-all"
                 >
                   <FaRedo className="text-xs" /> ถ่ายใหม่
                 </button>
-                <button onClick={handleBack} className="flex-1 py-4 bg-green-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-green-500/30 hover:bg-green-600 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                <button onClick={handleBack} className="flex-1 py-4 bg-green-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-green-500/30 hover:bg-green-500 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
                   <FaCheck /> มุมต่อไป
                 </button>
               </div>
@@ -1144,7 +1269,7 @@ export default function Home() {
                   </>
                 )}
                 {matched && (
-                  <button onClick={handleBack} className="flex-1 py-4 bg-green-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-green-500/30 hover:bg-green-600 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                  <button onClick={handleBack} className="flex-1 py-4 bg-green-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-green-500/30 hover:bg-green-500 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
                     <FaCheck /> มุมต่อไป
                   </button>
                 )}
@@ -1163,6 +1288,71 @@ export default function Home() {
       </div>
     );
   }
+
+  const findPrimaryQueuedItem = (angleId) => damageQueue.find(item => !item.isDuplicate && item.angleId === angleId);
+  const hasChecklistResults = verifiedCount > 0 || duplicateImages.length > 0 || damageQueue.length > 0;
+  const filledAngles = hasChecklistResults
+    ? ANGLES.filter(angle => verifiedAngles[angle.id] || findPrimaryQueuedItem(angle.id))
+    : ANGLES;
+  const missingAngles = hasChecklistResults
+    ? ANGLES.filter(angle => !verifiedAngles[angle.id] && !findPrimaryQueuedItem(angle.id))
+    : [];
+  const firstEmptyAngleIndex = ANGLES.findIndex(a => !verifiedAngles[a.id] && !findPrimaryQueuedItem(a.id));
+
+  const renderAngleCard = (angle, idx, isMissing = false) => {
+    const verified = verifiedAngles[angle.id];
+    const queued = findPrimaryQueuedItem(angle.id);
+    const displayItem = verified || queued;
+    const isNext = !hasChecklistResults && !displayItem && idx === firstEmptyAngleIndex;
+
+    return (
+      <div key={angle.id} className="flex flex-col items-center">
+        <button
+          onClick={() => {
+            if (!displayItem) handleStartCapture(angle);
+          }}
+          className={`relative w-full aspect-[4/3] rounded-xl border-2 overflow-hidden transition-all duration-300 flex items-center justify-center ${verified ? 'border-green-400 bg-white' : queued ? 'border-orange-300 bg-white shadow-sm' : isNext ? 'border-blue-400 bg-white shadow-md' : isMissing ? 'border-gray-200 border-dashed bg-gray-50' : 'border-gray-200 bg-gray-50'}`}
+        >
+          {displayItem?.image ? (
+            <>
+              <img src={displayItem.image} alt={angle.label} className="w-full h-full object-cover" />
+              {queued && !verified && (
+                <div className="absolute left-1 bottom-1 bg-orange-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold shadow-sm">
+                  รอทำนาย
+                </div>
+              )}
+              <button
+                onClick={(e) => handleRemoveVerified(e, angle.id)}
+                className="absolute top-1 right-1 w-6 h-6 bg-gray-900/60 text-white rounded-full flex items-center justify-center text-[10px] hover:bg-gray-900 transition-colors z-10"
+              >
+                <FaTimes />
+              </button>
+            </>
+          ) : (
+            <div className={`flex flex-col items-center gap-1 ${isNext ? 'text-blue-500' : 'text-gray-300'}`}>
+              <div className="text-2xl">
+                {angle.icon}
+              </div>
+              {isMissing ? (
+                <span className="text-[10px] font-bold text-gray-400">ไม่มีรูป</span>
+              ) : (
+                isNext && <MdOutlinePhotoCamera className="text-xs" />
+              )}
+            </div>
+          )}
+        </button>
+
+        <div className="mt-1.5 flex items-start gap-1 px-0.5 w-full justify-center min-h-[30px]">
+          <div className={`mt-0.5 flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${verified ? 'bg-green-500 text-white' : queued ? 'bg-orange-100 border border-orange-300 text-orange-500' : 'border border-gray-300 bg-white'}`}>
+            {verified && <FaCheck />}
+          </div>
+          <span className={`min-w-0 flex-1 text-[10px] leading-[1.15] font-bold text-center line-clamp-2 break-words ${verified ? 'text-green-700' : queued ? 'text-orange-600' : isNext ? 'text-blue-900' : 'text-gray-500'}`}>
+            {angle.label}
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   // ── Checklist screen ────────────────────────────────────────────────────
   return (
@@ -1190,7 +1380,7 @@ export default function Home() {
         </div>
 
         <div className="mx-4 mt-3 p-3 bg-blue-50 border border-blue-100 rounded-2xl flex items-start gap-2">
-          <span className="text-blue-400 text-sm mt-0.5 flex-shrink-0">ℹ️</span>
+          <MdInfo className="text-blue-400 text-sm mt-0.5 flex-shrink-0" />
           <p className="text-blue-600 text-[11px] font-medium leading-relaxed">
             AI จะตรวจสอบว่า: มุมภาพถูกต้อง · เห็นรถเต็มคัน · ภาพไม่เบลอ · แสงพอเหมาะ
           </p>
@@ -1222,90 +1412,70 @@ export default function Home() {
         )}
 
         <div className="grid grid-cols-3 gap-3 p-4">
-          {ANGLES.map((angle, idx) => {
-            const verified = verifiedAngles[angle.id];
-            const queued = damageQueue.find(item => item.angleId === angle.id);
-            const displayItem = verified || queued;
-            const isNext = !displayItem && idx === ANGLES.findIndex(a => !verifiedAngles[a.id] && !damageQueue.some(item => item.angleId === a.id));
+          {filledAngles.map((angle, idx) => renderAngleCard(angle, idx))}
+
+          {duplicateImages.map((dup, idx) => {
+            const duplicateId = dup.id || `duplicate-${idx}`;
+            const duplicateLabel = dup.label || 'รูปซ้ำ';
 
             return (
-              <div key={angle.id} className="flex flex-col items-center">
-                <button
-                  onClick={() => {
-                    if (!displayItem) handleStartCapture(angle);
+              <div key={duplicateId} className="flex flex-col items-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => { setZoomImage(dup.originalImage || dup.image); setZoomScale(1); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      setZoomImage(dup.originalImage || dup.image);
+                      setZoomScale(1);
+                    }
                   }}
-                  className={`relative w-full aspect-[4/3] rounded-xl border-2 overflow-hidden transition-all duration-300 flex items-center justify-center ${verified ? 'border-green-400 bg-white' : queued ? 'border-orange-300 bg-white shadow-sm' : isNext ? 'border-blue-400 bg-white shadow-md' : 'border-gray-200 bg-gray-50'}`}
+                  className="relative w-full aspect-[4/3] rounded-xl border-2 border-orange-300 bg-white shadow-sm overflow-hidden transition-all duration-300 flex items-center justify-center cursor-pointer"
                 >
-                  {displayItem?.image ? (
-                    <>
-                      <img src={displayItem.image} alt={angle.label} className="w-full h-full object-cover" />
-                      {queued && !verified && (
-                        <div className="absolute left-1 bottom-1 bg-orange-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold shadow-sm">
-                          รอทำนาย
-                        </div>
-                      )}
-                      <button
-                        onClick={(e) => handleRemoveVerified(e, angle.id)}
-                        className="absolute top-1 right-1 w-6 h-6 bg-gray-900/60 text-white rounded-full flex items-center justify-center text-[10px] hover:bg-gray-900 transition-colors z-10"
-                      >
-                        <FaTimes />
-                      </button>
-                    </>
-                  ) : (
-                    <div className={`flex flex-col items-center gap-1 ${isNext ? 'text-blue-500' : 'text-gray-300'}`}>
-                      <div className="text-2xl">
-                        {/* ถ้าเป็นกลุ่มมุมรถ ให้ใช้ไอคอนรถ ถ้าไม่ใช่ให้ใช้ไอคอน อื่นๆ/รูปภาพ */}
-                        {['front', 'rear', 'left', 'right', 'roof', 'front-left', 'front-right', 'back-left', 'back-right'].includes(angle.id)
-                          ? angle.icon
-                          : <FaImage />}
-                      </div>
-                      {isNext && <MdOutlinePhotoCamera className="text-xs" />}
-                    </div>
-                  )}
-                </button>
-
-                <div className="mt-1.5 flex items-center gap-1 px-1 w-full justify-center">
-                  <div className={`flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${verified ? 'bg-green-500 text-white' : queued ? 'bg-orange-100 border border-orange-300 text-orange-500' : 'border border-gray-300 bg-white'}`}>
-                    {verified && <FaCheck />}
+                  <img src={dup.image} alt={duplicateLabel} className="w-full h-full object-cover" />
+                  <div className="absolute left-1 bottom-1 bg-orange-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold shadow-sm">
+                    รูปซ้ำ
                   </div>
-                  <span className={`text-[10px] font-bold truncate text-center ${verified ? 'text-green-700' : queued ? 'text-orange-600' : isNext ? 'text-blue-900' : 'text-gray-500'}`}>
-                    {angle.label}
+                  <button
+                    onClick={(e) => handleRemoveDuplicate(e, duplicateId)}
+                    className="absolute top-1 right-1 w-6 h-6 bg-gray-900/60 text-white rounded-full flex items-center justify-center text-[10px] hover:bg-gray-900 transition-colors z-10"
+                  >
+                    <FaTimes />
+                  </button>
+                </div>
+
+                <div className="mt-1.5 flex items-start gap-1 px-0.5 w-full justify-center min-h-[30px]">
+                  <div className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[8px] bg-orange-100 border border-orange-300 text-orange-500">
+                    <FaPlus />
+                  </div>
+                  <span className="min-w-0 flex-1 text-[10px] leading-[1.15] font-bold text-center line-clamp-2 break-words text-orange-700">
+                    {duplicateLabel}
                   </span>
                 </div>
               </div>
             );
           })}
+
+          {missingAngles.map((angle, idx) => renderAngleCard(angle, idx, true))}
         </div>
 
         {verifiedCount > 0 && !allDone && (
           <div className="mx-4 p-3 bg-blue-50 rounded-2xl border border-blue-100 flex items-center gap-2">
-            <span className="text-base">💡</span>
+            <MdLightbulb className="text-blue-500 text-base flex-shrink-0" />
             <p className="text-blue-600 text-xs font-medium">เหลืออีก {totalAngles - verifiedCount} มุม เสร็จใกล้แล้ว!</p>
           </div>
         )}
 
         {duplicateImages.length > 0 && (
-          <div className="mx-4 mt-4 p-4 bg-orange-50 rounded-3xl border border-orange-200">
-            <h2 className="text-sm font-bold text-orange-800 mb-3 flex items-center gap-2">
-              <span className="text-lg">⚠️</span> ผลรูปซ้ำที่ AI ทายตรงกัน ({duplicateImages.length} รูป)
-            </h2>
-            <div className="grid grid-cols-2 gap-3">
-              {duplicateImages.map((dup, idx) => (
-                <div key={idx} className="bg-white p-2 rounded-2xl border border-orange-100 shadow-sm relative overflow-hidden">
-                  <img src={dup.image} alt="dup" className="w-full h-24 object-cover rounded-xl mb-2" />
-                  <div className="absolute top-3 right-3 bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold shadow-md">
-                    ทายซ้ำ
-                  </div>
-                  <p className="text-[11px] font-bold text-gray-800">AI ทายว่า: <span className="text-orange-600">{dup.label}</span></p>
-                  <p className="text-[10px] text-gray-500 mt-0.5">ความมั่นใจ: {Math.round(dup.confidence)}%</p>
-                </div>
-              ))}
-            </div>
+          <div className="mx-4 mt-1 p-3 bg-orange-50 rounded-2xl border border-orange-200 flex items-center justify-between gap-3">
+            <p className="text-orange-700 text-xs font-bold">
+              สร้างช่องรูปซ้ำเพิ่มแล้ว {duplicateImages.length} รูป
+            </p>
             <button
               onClick={() => setDuplicateImages([])}
-              className="w-full mt-3 py-2 bg-orange-100 text-orange-700 text-xs font-bold rounded-xl hover:bg-orange-200 transition-colors"
+              className="px-3 py-2 bg-orange-100 text-orange-700 text-[11px] font-bold rounded-xl hover:bg-orange-200 transition-colors flex-shrink-0"
             >
-              ลบรูปซ้ำทั้งหมด
+              ลบทั้งหมด
             </button>
           </div>
         )}
@@ -1321,7 +1491,7 @@ function StatusCard({ color, icon, title, desc }) {
   const colors = {
     green: 'bg-green-50 border-green-100 text-green-700 bg-green-100',
     red: 'bg-red-50 border-red-100 text-red-700 bg-red-100',
-    yellow: 'bg-yellow-50 border-yellow-100 text-yellow-700 bg-yellow-100',
+    yellow: 'bg-indigo-50 border-indigo-100 text-yellow-700 bg-yellow-100',
   };
   const [bg, border, text, iconBg] = colors[color]?.split(' ') ?? [];
 

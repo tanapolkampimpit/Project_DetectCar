@@ -3,23 +3,23 @@ import { FaCheck, FaShieldAlt, FaPrint, FaArrowLeft } from 'react-icons/fa';
 
 const ANGLES = [
     { id: 'front', label: 'ด้านหน้าตรง' },
-    { id: 'rear', label: 'ด้านหลังตรง' },
-    { id: 'left', label: 'ด้านข้างซ้าย' },
-    { id: 'right', label: 'ด้านข้างขวา' },
-    { id: 'roof', label: 'หลังคารถยนต์' },
-    { id: 'interior', label: 'ภายใน/อุปกรณ์ตกแต่ง' },
-    { id: 'spare_tire', label: 'ยางอะไหล่' },
-    { id: 'chassis', label: 'เลขตัวถังรถยนต์' },
-    { id: 'accessories', label: 'กรณีมีอุปกรณ์ตกแต่ง เช่นล้อแม็กซ์ เครื่องเสียง' },
-    { id: 'dashcam', label: 'กล้องติดหน้ารถ' },
-    { id: 'front-right', label: 'เฉียงหน้าด้านขวา' },
     { id: 'front-left', label: 'เฉียงหน้าด้านซ้าย' },
-    { id: 'back-right', label: 'เฉียงหลังด้านขวา' },
+    { id: 'left', label: 'ด้านข้างซ้าย' },
     { id: 'back-left', label: 'เฉียงหลังด้านซ้าย' },
+    { id: 'rear', label: 'ด้านหลังตรง' },
+    { id: 'back-right', label: 'เฉียงหลังด้านขวา' },
+    { id: 'right', label: 'ด้านข้างขวา' },
+    { id: 'front-right', label: 'เฉียงหน้าด้านขวา' },
+    { id: 'roof', label: 'หลังคารถยนต์' },
+    { id: 'engine_compartment', label: 'ห้องเครื่องยนต์' },
+    { id: 'interior', label: 'ภายใน/อุปกรณ์ตกแต่ง' },
     { id: 'odometer', label: 'จอเลขไมล์' },
+    { id: 'chassis', label: 'เลขตัวถังรถยนต์' },
     { id: 'tax_sticker', label: 'แผ่นป้ายภาษี' },
     { id: 'registration_doc', label: 'รายการจดทะเบียน' },
-    { id: 'engine_compartment', label: 'ห้องเครื่องยนต์' },
+    { id: 'dashcam', label: 'กล้องติดหน้ารถ' },
+    { id: 'accessories', label: 'กรณีมีอุปกรณ์ตกแต่ง เช่นล้อแม็กซ์ เครื่องเสียง' },
+    { id: 'spare_tire', label: 'ยางอะไหล่' },
     { id: 'tire_fl', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหน้าซ้าย' },
     { id: 'tire_fr', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหน้าขวา' },
     { id: 'tire_bl', label: 'ล้อที่ให้เห็นยี่ห้อและขนาด ปีผลิตของยาง ล้อหลังซ้าย' },
@@ -32,10 +32,12 @@ export default function Summarie() {
     const navigate = useNavigate();
 
     const verifiedAngles = location.state?.verifiedAngles || {};
+    const duplicateImages = location.state?.duplicateImages || [];
     const totalAngles = ANGLES.length;
     const verifiedCount = Object.keys(verifiedAngles).length;
+    const duplicateCount = duplicateImages.length;
 
-    if (verifiedCount === 0) {
+    if (verifiedCount === 0 && duplicateCount === 0) {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-[#f4f7fe] p-5">
                 <p className="text-gray-500 mb-4">ยังไม่มีข้อมูลรูปภาพจากการทำนาย</p>
@@ -57,6 +59,7 @@ export default function Summarie() {
                         <h1 className="text-base font-extrabold text-gray-900 leading-tight">สรุปผลการตรวจสอบ</h1>
                         <p className="text-[11px] text-gray-500">
                             {verifiedCount === totalAngles ? "รูปภาพครบถ้วนสมบูรณ์" : `ขาดอีก ${totalAngles - verifiedCount} มุม`}
+                            {duplicateCount > 0 ? ` · รูปซ้ำ ${duplicateCount} รูป` : ''}
                         </p>
                     </div>
                 </div>
@@ -125,12 +128,67 @@ export default function Summarie() {
                             </div>
                         );
                     })}
+                    {duplicateImages.map((dup, idx) => {
+                        const duplicateLabel = dup.label || 'รูปซ้ำ';
+
+                        return (
+                            <div key={dup.id || `duplicate-${idx}`} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-orange-200 transition-all">
+                                <div className="h-32 bg-gray-50 relative group">
+                                    {dup?.image ? (
+                                        <img src={dup.image} alt={duplicateLabel} className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="w-full h-full flex flex-col items-center justify-center text-gray-300">
+                                            <FaShieldAlt className="text-2xl mb-1 opacity-20" />
+                                            <span className="text-[10px] font-medium">รอรูปภาพ</span>
+                                        </div>
+                                    )}
+                                    <div className="absolute top-2 right-2 bg-orange-500 text-white text-[10px] px-2 py-1 rounded-full font-bold shadow-md border border-white">
+                                        รูปซ้ำ
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-white">
+                                    <p className="text-xs font-bold text-gray-800">{duplicateLabel}</p>
+                                    <div className="flex flex-col gap-0.5 mt-1">
+                                        <div className="flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                                            <p className="text-[10px] text-gray-500 font-medium">AI มั่นใจ {Math.round(dup.confidence || 0)}%</p>
+                                        </div>
+                                        {dup.class_details && (
+                                            <div className="flex items-start gap-1 mt-1.5">
+                                                <span className="text-[9px] font-bold bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded border border-orange-100 flex-shrink-0">
+                                                    {dup.class_details.group}
+                                                </span>
+                                                <span className="text-[10px] text-gray-600 line-clamp-1">
+                                                    {dup.class_details.th_name}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {dup.damages && dup.damages.length > 0 && (
+                                            <div className="mt-2 flex flex-col gap-1">
+                                                <p className="text-[10px] font-bold text-red-500">พบรอยตำหนิ ({dup.damages.length}):</p>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {dup.damages.map((dmg, dmgIdx) => (
+                                                        <div key={dmgIdx} className="relative w-14 h-14 border border-red-200 rounded overflow-hidden" title={`${dmg.label} - ${dmg.confidence}%`}>
+                                                            {dmg.image_base64 && <img src={dmg.image_base64} alt={dmg.label} className="w-full h-full object-cover" />}
+                                                            <div className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[9px] text-center font-bold truncate px-0.5 py-0.5">
+                                                                {dmg.label}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 
             <div className="bg-white p-4 rounded-t-3xl shadow-[0_-10px_30px_rgba(0,0,0,0.05)] flex gap-3 z-10">
                 <button onClick={() => navigate('/')} className="flex-1 py-4 bg-gray-50 border border-gray-200 text-gray-700 rounded-2xl font-bold text-sm hover:bg-gray-100 transition-all">แก้ไขรูป</button>
-                <button className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all flex items-center justify-center gap-2" onClick={() => alert("บันทึกข้อมูลเรียบร้อย!")}><FaPrint /> ยืนยันข้อมูล</button>
+                <button className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-all flex items-center justify-center gap-2" onClick={() => alert("บันทึกข้อมูลเรียบร้อย!")}><FaPrint /> ยืนยันข้อมูล</button>
             </div>
         </div>
     );

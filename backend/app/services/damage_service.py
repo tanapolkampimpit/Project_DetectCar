@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from app.core.config import settings
-from app.services.analyzer import extract_damage_detections
+from app.services.detections import extract_damage_detections
 
 if TYPE_CHECKING:
     from app.core.engine import BatchInferenceEngine
@@ -31,6 +31,7 @@ def predict_damage_sync(engine: "BatchInferenceEngine", item) -> dict:
             item,
             yolo_damage_out,
             min_confidence=settings.DAMAGE_CONFIDENCE_THRESHOLD,
+            nms_iou_threshold=settings.DAMAGE_NMS_IOU_THRESHOLD,
         ),
         "quality": {
             "is_blurry": item.blur_score < settings.BLUR_THRESHOLD,

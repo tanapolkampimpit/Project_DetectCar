@@ -12,6 +12,6 @@ async def read_file_safe(file: UploadFile) -> bytes:
         content_bytes.extend(chunk)
         if len(content_bytes) > max_file_bytes:
             max_mb = max_file_bytes / (1024 * 1024)
-            raise ValueError(f"ไฟล์ {file.filename} มีขนาดใหญ่เกินไป (>{max_mb:.0f}MB)")
+            raise ValueError(f"The file {file.filename} is too large (>{max_mb:.0f}MB)")
 
     return bytes(content_bytes)
