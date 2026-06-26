@@ -1,0 +1,1885 @@
+Detect Car Source Code Summary
+Source scope: C:\Users\tanap\Desktop\Fastapi\fastpyhub\app\projects\detect_car
+
+2. Project Structure
+โครงสร้างหลักของโฟลเดอร์ detect_car สำหรับระบบตรวจสอบประเภทรูป มุมรถ และรอยความเสียหาย มีรายละเอียดดังนี้
+
+ตำแหน่งโฟลเดอร์:
+  C:\Users\tanap\Desktop\Fastapi\fastpyhub\app\projects\detect_car
+
+ภาพรวม:
+  detect_car เป็นโมดูลย่อยของ FastAPI ที่แยกออกมาเป็น project เฉพาะด้านการตรวจสอบรถยนต์ โดยระบบทำงานหลัก 3 ด้าน คือ
+  1. ตรวจสอบประเภทรูป เช่น ภายนอกรถ, ภายในรถ, ห้องเครื่อง, เลขไมล์, เลขตัวถัง, เอกสาร, ล้อ, หลังคา
+  2. ตรวจสอบมุมรถภายนอก เช่น Front, Front-Left, Left, Back-Left, Back, Back-Right, Right, Front-Right
+  3. ตรวจจับรอยความเสียหายของรถยนต์ด้วย bounding box
+
+โครงสร้างแบบย่อ:
+
+app/projects/detect_car/
+  __init__.py
+  config.py
+  lifecycle.py
+  router.py
+  core/
+    __init__.py
+    engine.py
+    labels.py
+  models/
+    __init__.py
+    convnext.py
+    yolo.py
+  schemas/
+    __init__.py
+    health.py
+    prediction.py
+  services/
+    __init__.py
+    analyzer.py
+    damage_service.py
+    detections.py
+    model_loader.py
+    preprocessor.py
+    view_matcher.py
+    view_service.py
+  ml/
+    convnext_vehicle_view_classifier.pth
+    yolo_damage_detector.pt
+    yolo_photo_type_classifier.pt
+
+2.1 File main
+ในโฟลเดอร์ detect_car ไม่มีไฟล์ชื่อ main.py แยกเป็นของตัวเอง เพราะ project นี้ถูก mount เข้ากับ FastAPI application หลักจากภายนอก แต่ถ้าพิจารณาเฉพาะ detect_car ไฟล์ที่ทำหน้าที่ใกล้เคียง main หรือ entry point ของโมดูลนี้มี 3 ไฟล์ คือ router.py, lifecycle.py และ config.py
+
+2.1.1 __init__.py
+ตำแหน่ง:
+  app/projects/detect_car/__init__.py
+
+หน้าที่:
+  - ทำให้ detect_car เป็น Python package ที่ import ได้
+  - ระบุเชิงเอกสารว่าเป็น Detect-car project module
+  - ไม่มี business logic ภายในไฟล์นี้
+
+ความสำคัญ:
+  - ช่วยให้ไฟล์อื่นสามารถ import module ในโฟลเดอร์ detect_car ได้ เช่น .router, .config, .services
+
+2.1.2 config.py
+ตำแหน่ง:
+  app/projects/detect_car/config.py
+
+หน้าที่:
+  - เป็นไฟล์ตั้งค่าหลักของ detect_car
+  - กำหนด path ของ model weight ทั้ง 3 ตัว
+  - กำหนดค่า runtime เช่น device, batch size, queue depth, file size limit, blur threshold, confidence threshold
+  - อ่าน environment variable ด้วย prefix DETECT_CAR_
+
+ค่าหลักที่กำหนด:
+  - environment: ค่า environment ของ detect_car
+  - use_gpu: เปิด/ปิด GPU
+  - device: cpu หรือ cuda
+  - model_path: path ของ ConvNeXt weight
+  - yolo_gen_path: path ของ YOLO photo type classifier
+  - yolo_damage_path: path ของ YOLO damage detector
+  - batch_max_size: จำนวน request สูงสุดต่อ batch
+  - batch_max_wait: เวลารอรวม batch สูงสุด
+  - num_batch_workers: จำนวน worker สำหรับ batch inference
+  - max_queue_depth: จำนวน request สูงสุดในระบบก่อน reject
+  - max_file_bytes: ขนาดไฟล์สูงสุด default 25MB
+  - blur_threshold: ค่า threshold สำหรับตรวจภาพเบลอ default 50.0
+  - min_car_area_ratio: สัดส่วนพื้นที่รถขั้นต่ำ ใช้ดูว่ารถไกลเกินไปหรือไม่
+  - damage_confidence_threshold: confidence ขั้นต่ำของ damage detection
+  - damage_nms_iou_threshold: ค่า IoU สำหรับกรอง box ซ้อนกัน
+  - damage_image_size: image size สำหรับ YOLO damage
+  - match_threshold: confidence ขั้นต่ำสำหรับถือว่า match กับ expected_view
+
+function สำคัญ:
+  - normalize_runtime(logger=None)
+    ตรวจว่า GPU ใช้งานได้จริงหรือไม่ หากตั้งค่าให้ใช้ CUDA แต่เครื่องไม่มี CUDA จะ fallback เป็น CPU
+
+2.1.3 lifecycle.py
+ตำแหน่ง:
+  app/projects/detect_car/lifecycle.py
+
+หน้าที่:
+  - เป็น lifecycle controller ของ detect_car router
+  - ทำงานตอน startup และ shutdown ของ router
+  - โหลดโมเดลทั้งหมด
+  - สร้าง BatchInferenceEngine
+  - เริ่ม worker สำหรับ inference
+  - cleanup resource ตอนปิดระบบ
+
+ลำดับการทำงานตอน startup:
+  1. เรียก settings.normalize_runtime()
+  2. โหลดโมเดลด้วย load_models()
+  3. ดึง event loop ปัจจุบัน
+  4. สร้าง BatchInferenceEngine โดยส่ง convnext, yolo_gen, yolo_damage เข้าไป
+  5. เรียก engine.start()
+  6. เก็บ engine ไว้ที่ app.state.detect_car_engine
+  7. ถ้าใช้ GPU จะสร้าง task สำหรับเคลียร์ VRAM เมื่อ memory reserved สูง
+
+ลำดับการทำงานตอน shutdown:
+  1. เรียก engine.stop()
+  2. cancel cleanup task ถ้ามี
+  3. เคลียร์ CUDA cache ถ้าใช้ GPU
+
+2.1.4 router.py
+ตำแหน่ง:
+  app/projects/detect_car/router.py
+
+หน้าที่:
+  - เป็น entry point หลักของ API ใน detect_car
+  - สร้าง APIRouter พร้อม lifespan=detect_car_lifespan
+  - ประกาศ endpoint สำหรับ predict view, predict damage และ status
+  - ตรวจ request ก่อนส่งเข้า inference pipeline
+
+ความสัมพันธ์กับไฟล์อื่น:
+  - ใช้ settings จาก config.py
+  - ใช้ BatchInferenceEngine, backpressure, metrics จาก core/engine.py
+  - ใช้ schema จาก schemas/
+  - ใช้ service จาก services/preprocessor.py, services/view_service.py, services/damage_service.py
+  - ใช้ lifecycle จาก lifecycle.py
+
+2.2 Router
+Router คือชั้นที่รับ request จาก client และส่งต่อไปยัง service/inference engine
+
+ไฟล์:
+  app/projects/detect_car/router.py
+
+object หลัก:
+  - router = APIRouter(lifespan=detect_car_lifespan)
+
+endpoint ที่มี:
+
+2.2.1 POST /predict_view
+หน้าที่:
+  - ตรวจสอบว่ารูปที่ส่งมาเป็นมุมหรือประเภทภาพที่ตรงกับ expected_view หรือไม่
+  - ใช้สำหรับงานตรวจรูปถ่ายรถ เช่น ลูกค้าส่งรูป Front แต่ระบบต้องตรวจว่ารูปนั้นเป็น Front จริงหรือไม่
+
+input:
+  - file: UploadFile
+  - expected_view: Form string default = Front
+
+flow:
+  1. สร้าง request_id เพื่อใช้ trace log/response
+  2. validate expected_view ด้วย validate_expected_view()
+  3. validate content_type ว่าต้องเป็น image/*
+  4. ขอ slot จาก backpressure gate
+  5. อ่านไฟล์ด้วย read_file_safe()
+  6. preprocess ภาพด้วย prepare_image_for_inference()
+  7. ถ้าภาพ invalid จะ return invalid_image_format
+  8. ถ้า blur_score ต่ำกว่า threshold จะ return image_too_blurry
+  9. สร้าง BatchItem ด้วย prepare_single_item()
+  10. submit item เข้า BatchInferenceEngine
+  11. await future เพื่อรอผล inference
+  12. เอา key damages ออก เพราะ endpoint นี้โฟกัส view prediction
+  13. เพิ่ม request_id แล้ว return response
+
+2.2.2 POST /predict_damage
+หน้าที่:
+  - ตรวจจับรอยความเสียหายจากรูปภาพ
+  - คืนรายการ damage พร้อม confidence และ bounding box
+
+input:
+  - file: UploadFile
+
+flow:
+  1. สร้าง request_id
+  2. validate content_type ว่าต้องเป็น image/*
+  3. ขอ slot จาก backpressure gate
+  4. อ่านไฟล์ด้วย read_file_safe()
+  5. decode และวิเคราะห์ blur ด้วย decode_and_analyze_image()
+  6. ถ้าภาพ invalid จะ return invalid_image_format
+  7. ถ้าภาพเบลอ จะ return image_too_blurry พร้อม damages=[]
+  8. สร้าง item แบบ SimpleNamespace
+  9. เรียก predict_damage_sync() ใน threadpool
+  10. เพิ่ม request_id แล้ว return response
+  11. release backpressure ใน finally
+
+2.2.3 GET /status
+หน้าที่:
+  - ใช้ตรวจสถานะของ detect_car engine
+  - คืน performance metrics, load status และ runtime config
+
+ข้อมูลที่คืน:
+  - avg_latency_ms
+  - batch_efficiency
+  - total_processed
+  - error_rate
+  - uptime
+  - queue_depth
+  - active_tasks
+  - max_capacity
+  - device
+  - batch_max
+  - workers
+
+helper function ใน router:
+  - raise_api_error()
+    สร้าง error response ให้เป็นรูปแบบเดียวกัน
+  - read_file_safe()
+    อ่านไฟล์เป็น chunk และกันไฟล์ใหญ่เกิน limit
+  - _validate_image_file()
+    ตรวจ content_type ของไฟล์ upload
+
+2.3 Core
+Core คือส่วนแกนกลางของระบบ inference ประกอบด้วย label definition, queue, batching, backpressure และ metrics
+
+2.3.1 core/__init__.py
+ตำแหน่ง:
+  app/projects/detect_car/core/__init__.py
+
+หน้าที่:
+  - ทำให้ core เป็น package
+  - ใช้สำหรับรวมไฟล์แกนกลางของ inference
+
+2.3.2 core/labels.py
+ตำแหน่ง:
+  app/projects/detect_car/core/labels.py
+
+หน้าที่:
+  - รวมข้อมูล label และ mapping ทั้งหมดไว้ที่เดียว
+  - ลดการ hard-code label ในไฟล์ service อื่น
+  - เป็นเหมือนศูนย์กลาง class definition ของระบบ
+
+ข้อมูลหลักในไฟล์:
+
+EXTERIOR_LABELS:
+  - Front
+  - Front-Left
+  - Left
+  - Back-Left
+  - Back
+  - Back-Right
+  - Right
+  - Front-Right
+
+YOLO_CLASSES:
+  - chassis_number
+  - dashcam
+  - engine_room
+  - exterior
+  - inspection_document
+  - interior
+  - mileage_screen
+  - others
+  - roof
+  - spare_tire
+  - wheel
+
+FRONTEND_KEYS:
+  - Interior
+  - SpareTire
+  - ChassisNumber
+  - Accessories
+  - Dashcam
+  - Odometer
+  - TaxSticker
+  - RegistrationDoc
+  - EngineCompartment
+  - TireFrontLeft
+  - TireFrontRight
+  - TireBackLeft
+  - TireBackRight
+  - Others
+
+LABELS:
+  - รวม EXTERIOR_LABELS + FRONTEND_KEYS + YOLO_CLASSES
+
+INSURANCE_ANGLE_MAP:
+  - ใช้ map expected_view ไปยัง class ที่ยอมรับได้
+  - ตัวอย่าง Front ยอมรับ Front
+  - Interior ยอมรับ interior
+  - Odometer ยอมรับ mileage_screen
+  - TireFrontLeft/TireFrontRight/TireBackLeft/TireBackRight ยอมรับ wheel
+
+SWAP_MAP:
+  - ใช้แก้กรณีมุมซ้าย/ขวาสลับ
+  - Front-Left -> Front-Right
+  - Left -> Right
+  - Back-Left -> Back-Right
+  - และกลับกัน
+
+THAI_TO_EN_CLASS_MAP:
+  - แปลงชื่อ class ภาษาไทยจาก YOLO เป็นชื่ออังกฤษ
+  - เช่น กล้องติดหน้ารถ -> dashcam
+  - จอเลขไมล์ -> mileage_screen
+  - ห้องเครื่องยนต์ -> engine_room
+  - เลขตัวถังรถยนต์ -> chassis_number
+
+YOLO_TO_FRONTEND_MAP:
+  - แปลง class จาก YOLO ไปเป็น key ที่ frontend ใช้
+  - เช่น chassis_number -> ChassisNumber
+  - engine_room -> EngineCompartment
+  - mileage_screen -> Odometer
+
+function สำคัญ:
+  - normalize_class_name(name)
+    normalize ชื่อ class เป็น lowercase
+  - map_yolo_to_frontend(cls_name, expected_view="")
+    แปลง YOLO class เป็น frontend key โดยเฉพาะกรณี wheel จะใช้ expected_view เพื่อเลือกตำแหน่งล้อ
+
+2.3.3 core/engine.py
+ตำแหน่ง:
+  app/projects/detect_car/core/engine.py
+
+หน้าที่:
+  - เป็น inference engine หลักของระบบ
+  - จัดคิว request
+  - รวมหลาย request เป็น batch
+  - เรียกใช้โมเดล YOLO general, ConvNeXt และ YOLO damage
+  - รวมผลลัพธ์กลับไปยัง request แต่ละตัว
+  - เก็บ metrics สำหรับ endpoint /status
+
+class สำคัญ:
+
+BatchItem:
+  - dataclass สำหรับเก็บข้อมูล request ที่รอ inference
+  - field หลัก:
+    - request_id
+    - expected_view
+    - img
+    - tensor
+    - future
+    - blur_score
+    - enqueue_at
+
+BackpressureGate:
+  - ใช้จำกัดจำนวนงาน active ในระบบ
+  - ป้องกัน queue เต็มหรือ server รับงานมากเกินไป
+  - method:
+    - acquire(): ขอ slot ก่อนรับงาน
+    - release(): คืน slot หลังงานเสร็จ
+    - current_count: จำนวนงาน active ปัจจุบัน
+
+TelemetryTracker:
+  - เก็บสถิติของ inference
+  - metric ที่เก็บ:
+    - total_processed
+    - total_errors
+    - latency_sum
+    - batch_sizes
+    - uptime
+  - ใช้ใน /status endpoint
+
+BatchInferenceEngine:
+  - engine หลักที่ถือ model ทั้ง 3 ตัว
+  - field สำคัญ:
+    - convnext
+    - yolo_gen
+    - yolo_damage
+    - queue
+    - yolo_gen_lock
+    - yolo_damage_lock
+
+method สำคัญ:
+  - start()
+    เริ่ม worker ตาม NUM_BATCH_WORKERS
+  - stop()
+    หยุด worker และคืน exception ให้ request ที่ยังค้างใน queue
+  - submit_nowait(item)
+    ส่ง BatchItem เข้า queue
+  - _worker(worker_id)
+    ดึง item จาก queue แล้วรวมเป็น batch ตาม BATCH_MAX_SIZE หรือ BATCH_MAX_WAIT
+  - _run_batch_sync(batch)
+    ทำ inference จริงใน thread pool
+
+ลำดับ inference ใน _run_batch_sync:
+  1. filter request ที่ถูก cancel แล้ว
+  2. รวม tensor ด้วย torch.stack()
+  3. ย้าย tensor ไปยัง device cpu/cuda
+  4. เรียก YOLO general เป็น gatekeeper เพื่อตรวจประเภทภาพ
+  5. เลือกภาพที่ควรตรวจ damage
+  6. เรียก YOLO damage เฉพาะภาพที่เข้าเงื่อนไข
+  7. เลือกภาพที่ควรเข้า ConvNeXt เพื่อจำแนกมุมรถภายนอก
+  8. เรียก ConvNeXt แล้ว softmax เป็น probability
+  9. map output index ของ ConvNeXt ให้ตรงกับ label ของระบบ
+  10. เรียก build_result() เพื่อรวมผล
+  11. set_result กลับไปที่ future ของแต่ละ request
+  12. record metrics
+  13. release backpressure
+
+2.4 Models
+Models คือส่วนที่นิยาม architecture และวิธีโหลด model object
+
+2.4.1 models/__init__.py
+ตำแหน่ง:
+  app/projects/detect_car/models/__init__.py
+
+หน้าที่:
+  - ทำให้ models เป็น package
+  - ใช้เป็นพื้นที่เก็บ AI model definitions
+
+2.4.2 models/convnext.py
+ตำแหน่ง:
+  app/projects/detect_car/models/convnext.py
+
+class:
+  - MultiTaskConvNeXt
+
+หน้าที่:
+  - นิยามโมเดล ConvNeXt สำหรับจำแนกมุมรถภายนอก
+  - ใช้ timm.create_model("convnext_small", pretrained=False, num_classes=1024)
+  - ต่อด้วย class_prediction = nn.Linear(1024, 8)
+
+output:
+  - โมเดลเดิมทำนาย 8 class สำหรับมุมรถภายนอก
+  - มีการเพิ่ม roof_logits เป็นค่า -100 เพื่อให้ output รวมเป็น 9 logits สำหรับ compatibility
+  - Roof จะไม่ถูกทำนายจาก ConvNeXt เพราะ probability แทบเป็น 0
+
+class order ใน comment ของ code:
+  - class_prediction order:
+    - 0: Front
+    - 1: Front-Left
+    - 2: Left
+    - 3: Back-Left
+    - 4: Back
+    - 5: Back-Right
+    - 6: Right
+    - 7: Front-Right
+
+ลำดับ output ที่ engine คาดหวัง:
+  - 0: Front
+  - 1: Back
+  - 2: Left
+  - 3: Right
+  - 4: Roof
+  - 5: Front Right
+  - 6: Front Left
+  - 7: Back Right
+  - 8: Back Left
+
+2.4.3 models/yolo.py
+ตำแหน่ง:
+  app/projects/detect_car/models/yolo.py
+
+function:
+  - get_yolo_model(model_path, device)
+
+หน้าที่:
+  - โหลด YOLO model ด้วย ultralytics.YOLO
+  - ปิด log ของ ultralytics ให้แสดงเฉพาะ error
+  - ถ้า device เป็น cuda จะย้าย model ไป GPU
+  - คืน YOLO object ให้ model_loader.py
+
+2.5 Schemas
+Schemas คือ Pydantic model สำหรับกำหนดรูปแบบ response ของ API ทำให้ response มีโครงสร้างชัดเจนและ FastAPI สร้าง OpenAPI/Swagger ได้
+
+2.5.1 schemas/__init__.py
+ตำแหน่ง:
+  app/projects/detect_car/schemas/__init__.py
+
+หน้าที่:
+  - ทำให้ schemas เป็น package
+  - ใช้เป็นที่เก็บ API schema ของ detect_car
+
+2.5.2 schemas/prediction.py
+ตำแหน่ง:
+  app/projects/detect_car/schemas/prediction.py
+
+class:
+
+Prediction:
+  - label: str
+  - confidence: float
+  - ใช้เก็บผลทำนายหลัก
+
+DamageDetection:
+  - label: str
+  - confidence: float
+  - box: list[float]
+  - ใช้เก็บผลตรวจจับความเสียหาย 1 จุด
+
+Quality:
+  - is_blurry: bool
+  - blur_score: float
+  - is_too_far: bool | None
+  - car_area_ratio: float | None
+  - ใช้เก็บคุณภาพของรูป เช่น เบลอหรือรถอยู่ไกลเกินไป
+
+PredictViewResponse:
+  - prediction: Prediction
+  - is_car: bool
+  - match: bool
+  - quality: Quality
+  - time_ms: float
+  - request_id: str | None
+  - ใช้เป็น response ของ /predict_view
+
+DamageResponse:
+  - damages: list[DamageDetection]
+  - quality: Quality
+  - time_ms: float
+  - request_id: str | None
+  - ใช้เป็น response ของ /predict_damage
+
+ImageQualityError:
+  - status: str default error
+  - error: str
+  - message: str
+  - quality: Quality
+  - request_id: str | None
+  - damages: list[DamageDetection] | None
+  - ใช้คืน error กรณีภาพเบลอหรือคุณภาพไม่ผ่าน
+
+2.5.3 schemas/health.py
+ตำแหน่ง:
+  app/projects/detect_car/schemas/health.py
+
+class:
+
+PerformanceStats:
+  - avg_latency_ms
+  - batch_efficiency
+  - total_processed
+  - error_rate
+  - uptime
+
+LoadStats:
+  - queue_depth
+  - active_tasks
+  - max_capacity
+
+RuntimeConfig:
+  - device
+  - batch_max
+  - workers
+
+HealthResponse:
+  - status
+  - performance
+  - load
+  - config
+  - ใช้เป็น response ของ /status
+
+2.6 Services
+Services คือชั้น business logic และ helper logic ที่ router และ engine เรียกใช้ แยกหน้าที่เป็นไฟล์ย่อยเพื่อลดความซับซ้อนใน router
+
+2.6.1 services/__init__.py
+ตำแหน่ง:
+  app/projects/detect_car/services/__init__.py
+
+หน้าที่:
+  - ทำให้ services เป็น package
+  - ระบุว่าเป็น business และ inference services ของ detect-car project
+
+2.6.2 services/preprocessor.py
+ตำแหน่ง:
+  app/projects/detect_car/services/preprocessor.py
+
+หน้าที่:
+  - เตรียมภาพก่อนเข้าโมเดล
+  - decode ไฟล์ภาพจาก bytes
+  - คำนวณ blur score
+  - แปลงภาพเป็น tensor สำหรับ ConvNeXt
+
+transform ที่ใช้:
+  - ToTensor()
+  - Resize((224, 224), antialias=True)
+  - Normalize ด้วย mean/std ของ ImageNet
+
+function:
+  - decode_and_analyze_image(content)
+    แปลง bytes เป็นภาพ BGR ด้วย cv2.imdecode, คำนวณ blur score จาก Laplacian variance, แปลงเป็น RGB แล้วคืน img_rgb และ blur_score
+
+  - prepare_image_for_inference(content)
+    เรียก decode_and_analyze_image(), preprocess ภาพเป็น tensor, pin_memory ถ้าใช้ GPU ได้ แล้วคืน img, blur_score, tensor
+
+2.6.3 services/model_loader.py
+ตำแหน่ง:
+  app/projects/detect_car/services/model_loader.py
+
+หน้าที่:
+  - โหลดโมเดลทั้งหมดที่ detect_car ต้องใช้
+  - โหลด ConvNeXt weight จาก .pth
+  - โหลด YOLO general และ YOLO damage จาก .pt
+  - warmup โมเดลด้วย dummy input
+
+function:
+  - load_models()
+
+รายละเอียด:
+  - สร้าง MultiTaskConvNeXt().to(device)
+  - โหลด state_dict ด้วย torch.load()
+  - รองรับ checkpoint เก่าที่ใช้ key fc_projection.weight/fc_projection.bias โดย map ไปเป็น backbone.head.fc
+  - เรียก convnext.eval()
+  - ถ้าใช้ GPU จะเปลี่ยน ConvNeXt เป็น half precision
+  - โหลด YOLO ด้วย get_yolo_model()
+  - warmup ConvNeXt ด้วย dummy tensor
+  - warmup YOLO ด้วย dummy image list
+
+2.6.4 services/analyzer.py
+ตำแหน่ง:
+  app/projects/detect_car/services/analyzer.py
+
+หน้าที่:
+  - รวมผลจากโมเดลหลายตัวให้เป็น response สุดท้าย
+  - วิเคราะห์ว่า prediction เป็นรถหรือไม่
+  - วิเคราะห์ว่า match กับ expected_view หรือไม่
+  - รวม quality และ damages
+
+function:
+  - build_result(item, probs, yolo_gen_out, yolo_damage_out, total_ms, settings)
+    รวมผล damage, YOLO detection, ConvNeXt probability, blur score, car area ratio และ match decision
+
+  - process_batch_results(results, expected_views, files)
+    helper สำหรับสรุปผลหลายไฟล์ โดยมี final_assigned_view และ needs_swap
+    หมายเหตุ: ใน router ปัจจุบันยังไม่มี endpoint batch ที่เรียก function นี้โดยตรง
+
+logic สำคัญใน build_result:
+  - ดึง damages ด้วย extract_damage_detections()
+  - ดึง yolo_detections ด้วย extract_yolo_detections()
+  - คำนวณ largest_ratio ด้วย largest_car_area_ratio()
+  - ตั้ง is_too_far เมื่อ car area ratio ต่ำกว่า threshold
+  - filter false positive กลุ่ม interior ด้วย filter_hallucinated_interior()
+  - ตัดสินว่าจะใช้ logic YOLO class หรือ exterior class
+  - ถ้าไม่ใช่รถ จะตั้ง label เป็น Unknown และ clear damages
+
+2.6.5 services/view_service.py
+ตำแหน่ง:
+  app/projects/detect_car/services/view_service.py
+
+หน้าที่:
+  - ตรวจ expected_view
+  - เตรียม BatchItem สำหรับส่งเข้า engine
+
+function:
+  - validate_expected_view(expected_view)
+    ตรวจว่า expected_view อยู่ใน INSURANCE_ANGLE_MAP หรือไม่ หากไม่อยู่จะ raise ValueError พร้อม valid_values
+
+  - prepare_single_item(request_id, expected_view, img, tensor, blur_score, loop)
+    สร้าง BatchItem พร้อม future เพื่อให้ router await ผลลัพธ์จาก engine ได้
+
+2.6.6 services/view_matcher.py
+ตำแหน่ง:
+  app/projects/detect_car/services/view_matcher.py
+
+หน้าที่:
+  - ตัดสินว่า output ของโมเดลตรงกับ expected_view หรือไม่
+  - แยก logic ระหว่าง exterior view และ YOLO class ทั่วไป
+
+function:
+  - has_yolo_exterior(detections, probs, match_threshold)
+    ตรวจว่า YOLO บอกว่าเป็น exterior หรือ others ที่ confidence พอ และควรใช้ ConvNeXt ต่อหรือไม่
+
+  - decide_yolo_class(expected_view, detections, match_threshold)
+    ใช้กับ expected_view ที่ไม่ใช่ exterior labels เช่น Interior, Dashcam, Odometer, EngineCompartment
+
+  - build_exterior_results(probs)
+    แปลง probability ของ ConvNeXt เป็น list ของ label/confidence และ apply SWAP_MAP
+
+  - decide_exterior_class(expected_view, probs, detections, yolo_exterior, match_threshold)
+    ใช้ตัดสินมุมรถภายนอกว่าตรงกับ expected_view หรือไม่
+
+เงื่อนไขพิเศษ:
+  - ถ้า expected_view เป็น Left หรือ Right และโมเดลทายตรง แต่ confidence ของ Left+Right รวมกันเกิน 80 จะถือว่า match ได้
+
+2.6.7 services/detections.py
+ตำแหน่ง:
+  app/projects/detect_car/services/detections.py
+
+หน้าที่:
+  - จัดการผลลัพธ์จาก YOLO
+  - ดึง label/confidence
+  - ดึง bounding box ของ damage
+  - กรอง box ซ้อน
+  - ตรวจสัดส่วนพื้นที่รถ
+  - กรอง false positive บางประเภท
+
+function:
+  - _box_iou(box_a, box_b)
+    คำนวณ IoU ระหว่าง bounding box 2 กล่อง
+
+  - extract_yolo_detections(yolo_gen_out)
+    ดึง detection จาก YOLO general ทั้งกรณี output เป็น boxes และ probs
+
+  - suppress_overlapping_damages(damages, iou_threshold=0.85)
+    กรอง damage box ที่ทับซ้อนกันมากเกินไป โดยเก็บ box confidence สูงกว่าไว้ก่อน
+
+  - extract_damage_detections(item, yolo_damage_out, min_confidence=0.15, nms_iou_threshold=0.85)
+    ดึง damage label, confidence และ box จาก YOLO damage
+
+  - largest_car_area_ratio(yolo_gen_out)
+    หา bounding box รถที่ใหญ่ที่สุด แล้วคำนวณสัดส่วนพื้นที่รถเทียบภาพ
+
+  - filter_hallucinated_interior(detections, largest_ratio, expected_view)
+    กรอง interior/dashcam/mileage_screen ที่อาจเป็น false positive หากภาพเป็น exterior และเห็นรถชัด
+
+2.6.8 services/damage_service.py
+ตำแหน่ง:
+  app/projects/detect_car/services/damage_service.py
+
+หน้าที่:
+  - ทำ inference เฉพาะ damage detection สำหรับ endpoint /predict_damage
+
+function:
+  - predict_damage_sync(engine, item)
+
+flow:
+  1. เริ่มจับเวลา
+  2. แปลงภาพ RGB เป็น BGR สำหรับ YOLO
+  3. เรียก engine.yolo_damage พร้อม lock
+  4. ใช้ confidence threshold และ image size จาก settings
+  5. extract damage detections
+  6. คืน damages, quality และ time_ms
+
+2.7 ML Model files
+ML Model files คือไฟล์ weight ที่ใช้สำหรับ inference จริงใน runtime อยู่ในโฟลเดอร์ ml/
+
+ตำแหน่ง:
+  app/projects/detect_car/ml/
+
+2.7.1 convnext_vehicle_view_classifier.pth
+ประเภท:
+  - PyTorch checkpoint
+
+ขนาดไฟล์โดยประมาณ:
+  - 201,131,499 bytes
+
+ใช้โดย:
+  - services/model_loader.py
+  - models/convnext.py
+  - core/engine.py
+
+path ใน config:
+  - settings.MODEL_PATH
+  - default: app/projects/detect_car/ml/convnext_vehicle_view_classifier.pth
+
+หน้าที่:
+  - เป็น weight ของ MultiTaskConvNeXt
+  - ใช้จำแนกมุมรถภายนอก 8 มุมหลัก
+
+ใช้งานเมื่อ:
+  - YOLO general ตรวจพบว่าเป็น exterior หรือ others ที่น่าจะเป็นภาพรถภายนอก
+  - engine ต้องการจำแนกมุมรถให้ละเอียดกว่า YOLO general
+
+2.7.2 yolo_photo_type_classifier.pt
+ประเภท:
+  - Ultralytics YOLO model weight
+
+ขนาดไฟล์โดยประมาณ:
+  - 10,286,216 bytes
+
+ใช้โดย:
+  - services/model_loader.py
+  - models/yolo.py
+  - core/engine.py
+  - services/detections.py
+
+path ใน config:
+  - settings.YOLO_GEN_PATH
+  - default: app/projects/detect_car/ml/yolo_photo_type_classifier.pt
+
+หน้าที่:
+  - ใช้เป็น YOLO general หรือ gatekeeper
+  - ตรวจประเภทภาพก่อนว่าจะเป็น exterior, interior, wheel, roof, document, dashcam, mileage_screen ฯลฯ
+  - ช่วยตัดสินว่าจะส่งต่อให้ ConvNeXt หรือ YOLO damage หรือไม่
+
+class ที่เกี่ยวข้อง:
+  - chassis_number
+  - dashcam
+  - engine_room
+  - exterior
+  - inspection_document
+  - interior
+  - mileage_screen
+  - others
+  - roof
+  - spare_tire
+  - wheel
+
+2.7.3 yolo_damage_detector.pt
+ประเภท:
+  - Ultralytics YOLO model weight
+
+ขนาดไฟล์โดยประมาณ:
+  - 61,012,741 bytes
+
+ใช้โดย:
+  - services/model_loader.py
+  - models/yolo.py
+  - core/engine.py
+  - services/damage_service.py
+  - services/detections.py
+
+path ใน config:
+  - settings.YOLO_DAMAGE_PATH
+  - default: app/projects/detect_car/ml/yolo_damage_detector.pt
+
+หน้าที่:
+  - ตรวจจับรอยความเสียหายของรถ
+  - คืน bounding box, label และ confidence
+
+ค่า inference ที่เกี่ยวข้อง:
+  - conf = settings.DAMAGE_CONFIDENCE_THRESHOLD
+  - imgsz = settings.DAMAGE_IMAGE_SIZE
+  - NMS ซ้อนทับด้วย settings.DAMAGE_NMS_IOU_THRESHOLD
+
+ความสัมพันธ์ของ model ทั้ง 3 ตัว:
+  1. YOLO Photo Type Classifier ทำหน้าที่คัดกรองประเภทภาพก่อน
+  2. ถ้าภาพเป็น exterior/others จะใช้ ConvNeXt ช่วยแยกมุมรถภายนอก
+  3. ถ้าภาพเข้าเงื่อนไขตรวจ damage จะใช้ YOLO Damage Detector ตรวจรอยความเสียหาย
+  4. analyzer.py รวมผลทั้งหมดเป็น response สุดท้าย
+
+
+3. API Endpoint
+router.py สร้าง APIRouter พร้อม lifespan ของ detect_car โดย endpoint ภายใน router มี 3 รายการหลัก:
+
+3.1 POST /predict_view
+หน้าที่:
+  - รับรูปภาพ 1 ไฟล์ และ expected_view
+  - ตรวจสอบว่ารูปเป็น image/*
+  - จำกัดขนาดไฟล์ไม่เกิน DETECT_CAR_MAX_FILE_BYTES หรือค่า default 25MB
+  - ตรวจ blur score ถ้าต่ำกว่า threshold จะคืน error image_too_blurry
+  - ส่งภาพเข้า BatchInferenceEngine เพื่อทำนายมุมภาพ/ประเภทภาพ
+  - ตัดข้อมูล damages ออกจาก response เพราะ endpoint นี้เน้นผล view prediction
+
+Input:
+  - file: UploadFile แบบ multipart/form-data
+  - expected_view: Form string ค่า default คือ Front
+
+expected_view ที่รองรับ:
+  - Front
+  - Front-Left
+  - Left
+  - Back-Left
+  - Back
+  - Back-Right
+  - Right
+  - Front-Right
+  - Roof
+  - Interior
+  - SpareTire
+  - ChassisNumber
+  - Accessories
+  - Dashcam
+  - Odometer
+  - TaxSticker
+  - RegistrationDoc
+  - EngineCompartment
+  - TireFrontLeft
+  - TireFrontRight
+  - TireBackLeft
+  - TireBackRight
+  - Others
+
+Response สำเร็จ:
+  - prediction.label
+  - prediction.confidence
+  - is_car
+  - match
+  - quality.is_blurry
+  - quality.blur_score
+  - quality.is_too_far
+  - quality.car_area_ratio
+  - time_ms
+  - request_id
+
+Error ที่พบได้:
+  - 400 invalid_expected_view
+  - 400 invalid_file_type
+  - 400 invalid_image_format
+  - 413 file_too_large
+  - 429 queue_full
+  - 500 internal_server_error
+  - response body แบบ status=error เมื่อภาพเบลอเกิน threshold
+
+3.2 POST /predict_damage
+หน้าที่:
+  - รับรูปภาพ 1 ไฟล์
+  - ตรวจสอบชนิดไฟล์, ขนาดไฟล์ และ blur score
+  - เรียก YOLO damage model เพื่อตรวจจับตำแหน่งความเสียหายของรถ
+
+Input:
+  - file: UploadFile แบบ multipart/form-data
+
+Response สำเร็จ:
+  - damages: list ของ damage detection
+    - label
+    - confidence
+    - box [x1, y1, x2, y2]
+  - quality.is_blurry
+  - quality.blur_score
+  - time_ms
+  - request_id
+
+3.3 GET /status
+หน้าที่:
+  - ตรวจสถานะ runtime ของ detect_car engine
+  - คืน performance, queue/load และ config runtime
+
+Response:
+  - status
+  - performance.avg_latency_ms
+  - performance.batch_efficiency
+  - performance.total_processed
+  - performance.error_rate
+  - performance.uptime
+  - load.queue_depth
+  - load.active_tasks
+  - load.max_capacity
+  - config.device
+  - config.batch_max
+  - config.workers
+
+
+4. Function Code
+ส่วนนี้สรุป function code แบบเน้นให้คนที่มารับช่วงต่อสามารถแก้ไขโค้ดได้ง่ายขึ้น โดยอธิบายว่า function แต่ละตัวอยู่ไฟล์ไหน ทำหน้าที่อะไร รับข้อมูลอะไร คืนค่าอะไร และถ้าต้องการแก้ behavior บางอย่างควรเริ่มจากไฟล์ใด
+
+4.1 ภาพรวม Flow ของ Function Code
+ระบบ detect_car มี flow หลัก 2 เส้น คือ predict_view และ predict_damage
+
+4.1.1 Flow: predict_view
+ใช้ตรวจว่ารูปที่อัปโหลดมาเป็นประเภทรูปหรือมุมรถที่ตรงกับ expected_view หรือไม่
+
+ลำดับการทำงาน:
+  1. router.py รับ request ที่ /predict_view
+  2. validate expected_view ด้วย services/view_service.py
+  3. ตรวจว่าไฟล์เป็น image ด้วย router.py
+  4. ตรวจ queue capacity ด้วย core/engine.py
+  5. อ่านไฟล์ upload ด้วย read_file_safe()
+  6. decode รูป + คำนวณ blur + preprocess tensor ด้วย services/preprocessor.py
+  7. ถ้ารูปเบลอเกิน threshold จะ return error ทันที
+  8. สร้าง BatchItem ด้วย prepare_single_item()
+  9. ส่ง BatchItem เข้า BatchInferenceEngine
+  10. engine.py รวม request เป็น batch
+  11. YOLO photo type classifier ตรวจประเภทภาพก่อน
+  12. ถ้าเป็น exterior/others จะเรียก ConvNeXt เพื่อแยกมุมรถ
+  13. ถ้าเข้าเงื่อนไข จะเรียก YOLO damage เพื่อดึง damage เพิ่มภายใน engine
+  14. analyzer.py รวมผล model ทั้งหมด
+  15. router.py ตัด damages ออกจาก response ของ predict_view
+  16. return prediction, is_car, match, quality, time_ms, request_id
+
+แก้ไขง่าย:
+  - อยากเพิ่ม expected_view ใหม่: แก้ core/labels.py
+  - อยากเปลี่ยน threshold รูปเบลอ: แก้ config.py หรือ env DETECT_CAR_BLUR_THRESHOLD
+  - อยากเปลี่ยน logic ว่ารูป match หรือไม่: แก้ services/view_matcher.py
+  - อยากเปลี่ยน response field: แก้ schemas/prediction.py และ services/analyzer.py
+  - อยากเปลี่ยนขั้นตอน inference: แก้ core/engine.py
+
+4.1.2 Flow: predict_damage
+ใช้ตรวจจับรอยความเสียหายของรถจากรูปภาพ
+
+ลำดับการทำงาน:
+  1. router.py รับ request ที่ /predict_damage
+  2. ตรวจว่าไฟล์เป็น image
+  3. ตรวจ queue capacity ด้วย backpressure
+  4. อ่านไฟล์ upload
+  5. decode รูปและคำนวณ blur score
+  6. ถ้ารูปเบลอเกิน threshold จะ return error พร้อม damages=[]
+  7. เรียก services/damage_service.py
+  8. damage_service.py เรียก YOLO damage model
+  9. services/detections.py extract label, confidence, bounding box
+  10. ทำ NMS เพื่อลด box ซ้อนกัน
+  11. return damages, quality, time_ms, request_id
+
+แก้ไขง่าย:
+  - อยากปรับ confidence ของ damage: แก้ config.py หรือ env DETECT_CAR_DAMAGE_CONFIDENCE_THRESHOLD
+  - อยากปรับ NMS: แก้ config.py หรือ env DETECT_CAR_DAMAGE_NMS_IOU_THRESHOLD
+  - อยากเปลี่ยนรูปแบบ box/result: แก้ services/detections.py และ schemas/prediction.py
+  - อยากเปลี่ยน model damage: เปลี่ยนไฟล์ weight หรือ path ใน config.py
+
+4.2 Router Function Code
+ไฟล์:
+  app/projects/detect_car/router.py
+
+หน้าที่ของไฟล์:
+  - เป็น API layer ของ detect_car
+  - รับ request จาก client
+  - validate input เบื้องต้น
+  - ส่งงานไปยัง service หรือ inference engine
+  - จัดการ error response ให้เป็นรูปแบบเดียวกัน
+
+4.2.1 raise_api_error(status_code, error, message, **extra)
+หน้าที่:
+  - สร้าง HTTPException สำหรับ API error
+  - รวม error, message และข้อมูลเสริม เช่น request_id ไว้ใน detail
+
+Input:
+  - status_code: HTTP status code เช่น 400, 413, 429, 500
+  - error: error code แบบ string เช่น invalid_file_type
+  - message: ข้อความอธิบาย error
+  - extra: field เพิ่มเติม เช่น request_id, valid_values
+
+Output:
+  - ไม่มี return เพราะ raise HTTPException
+
+ใช้เมื่อ:
+  - request ไม่ถูกต้อง
+  - ไฟล์ใหญ่เกิน
+  - queue เต็ม
+  - เกิด internal server error
+
+ถ้าจะแก้:
+  - ถ้าต้องการเปลี่ยน format error response ให้แก้ function นี้
+  - ระวังว่า endpoint อื่นใน router.py ใช้ function นี้ร่วมกัน
+
+4.2.2 read_file_safe(file)
+หน้าที่:
+  - อ่านไฟล์ upload แบบ chunk ทีละ 1MB
+  - ป้องกันการโหลดไฟล์ใหญ่เกินเข้า memory
+  - ถ้าเกิน settings.MAX_FILE_BYTES จะ raise ValueError
+
+Input:
+  - file: UploadFile จาก FastAPI
+
+Output:
+  - bytes ของไฟล์รูปภาพ
+
+Error:
+  - ValueError เมื่อไฟล์ใหญ่เกิน limit
+
+ค่าที่เกี่ยวข้อง:
+  - settings.MAX_FILE_BYTES
+  - default ใน config.py คือ 25 * 1024 * 1024 bytes หรือ 25MB
+
+ถ้าจะแก้:
+  - ถ้าต้องการเพิ่ม/ลด limit ให้แก้ config.py หรือ env DETECT_CAR_MAX_FILE_BYTES
+  - ถ้าต้องการเปลี่ยน chunk size ให้แก้เลข 1024 * 1024 ใน function นี้
+
+4.2.3 _validate_image_file(file, request_id)
+หน้าที่:
+  - ตรวจ content_type ของไฟล์ upload
+  - อนุญาตเฉพาะ content_type ที่ขึ้นต้นด้วย image/
+
+Input:
+  - file: UploadFile
+  - request_id: id ของ request สำหรับ trace error
+
+Output:
+  - ไม่มี return หากผ่าน
+  - raise HTTPException หากไม่ใช่ image
+
+ถ้าจะแก้:
+  - ถ้าต้องการจำกัดเฉพาะ jpg/png ให้เพิ่ม logic ตรวจ file.content_type หรือ file.filename ใน function นี้
+  - ระวังว่าการเช็ค content_type อย่างเดียวอาจถูก spoof ได้ ถ้าต้องการเข้มขึ้นควรตรวจจาก decoded image ใน preprocessor.py ร่วมด้วย
+
+4.2.4 predict_view(request, file, expected_view)
+หน้าที่:
+  - endpoint หลักสำหรับตรวจประเภทรูปและมุมรถ
+  - ตรวจว่าภาพที่ส่งมาตรงกับ expected_view หรือไม่
+
+Input:
+  - request: FastAPI Request ใช้ดึง app.state.detect_car_engine
+  - file: UploadFile แบบ multipart/form-data
+  - expected_view: Form string default = Front
+
+Output:
+  - PredictViewResponse หรือ ImageQualityError
+
+ขั้นตอนสำคัญใน code:
+  - สร้าง request_id ด้วย uuid.uuid4().hex[:8]
+  - validate expected_view ด้วย validate_expected_view()
+  - validate image content type
+  - acquire backpressure
+  - read file
+  - prepare_image_for_inference()
+  - check blur_score
+  - สร้าง BatchItem
+  - submit เข้า engine queue
+  - await item.future
+  - result.pop("damages", None)
+  - ใส่ request_id แล้ว return
+
+จุดที่คนแก้ต่อควรรู้:
+  - predict_view ไม่ได้เรียก model ตรงๆ แต่ส่งเข้า BatchInferenceEngine
+  - response ของ engine มี damages แต่ endpoint นี้ลบออกก่อน return
+  - ถ้าอยากให้ /predict_view คืน damages ด้วย ให้เอาบรรทัด result.pop("damages", None) ออก และปรับ schema PredictViewResponse
+  - ถ้า queue เต็มจะคืน 429 queue_full
+  - finally จะ release backpressure เฉพาะกรณี submit ไม่สำเร็จ เพราะถ้า submit สำเร็จ engine จะ release ให้เอง
+
+4.2.5 predict_damage(request, file)
+หน้าที่:
+  - endpoint หลักสำหรับตรวจจับ damage
+  - ไม่เข้า batch queue แบบ predict_view แต่เรียก predict_damage_sync ผ่าน threadpool
+
+Input:
+  - request: FastAPI Request
+  - file: UploadFile
+
+Output:
+  - DamageResponse หรือ ImageQualityError
+
+ขั้นตอนสำคัญ:
+  - validate image content type
+  - acquire backpressure
+  - read file
+  - decode_and_analyze_image()
+  - check blur_score
+  - สร้าง SimpleNamespace(img=img, blur_score=blur_score)
+  - ดึง engine จาก app.state.detect_car_engine
+  - run_in_threadpool(predict_damage_sync, engine, item)
+  - ใส่ request_id แล้ว return
+  - release backpressure ใน finally เสมอ
+
+จุดที่คนแก้ต่อควรรู้:
+  - endpoint นี้ใช้เฉพาะ YOLO damage model
+  - ถ้าต้องการให้ตรวจเฉพาะภาพรถจริงก่อน ต้องเพิ่ม YOLO general gatekeeper ก่อนเรียก predict_damage_sync
+  - ถ้าต้องการเพิ่ม field เช่น image_width/image_height ใน response ให้แก้ damage_service.py, detections.py และ schema
+
+4.2.6 get_detect_car_status(request)
+หน้าที่:
+  - endpoint สำหรับดูสถานะระบบ
+  - อ่าน queue depth จาก engine
+  - อ่าน active task จาก backpressure
+  - อ่าน performance จาก metrics
+
+Input:
+  - request: FastAPI Request
+
+Output:
+  - HealthResponse
+
+ถ้าจะแก้:
+  - ถ้าต้องการเพิ่ม metric ใหม่ ให้เพิ่มใน TelemetryTracker ที่ core/engine.py แล้วเพิ่ม schema ใน schemas/health.py
+
+4.3 Config Function Code
+ไฟล์:
+  app/projects/detect_car/config.py
+
+4.3.1 DetectCarSettings
+หน้าที่:
+  - เป็น class config กลางของ detect_car
+  - ใช้ pydantic-settings อ่านค่าจาก environment file
+  - ตั้ง env_prefix เป็น DETECT_CAR_
+
+ค่า config ที่แก้บ่อย:
+  - DETECT_CAR_DEVICE
+  - DETECT_CAR_USE_GPU
+  - DETECT_CAR_MODEL_PATH
+  - DETECT_CAR_YOLO_GEN_PATH
+  - DETECT_CAR_YOLO_DAMAGE_PATH
+  - DETECT_CAR_BATCH_MAX_SIZE
+  - DETECT_CAR_MAX_QUEUE_DEPTH
+  - DETECT_CAR_MAX_FILE_BYTES
+  - DETECT_CAR_BLUR_THRESHOLD
+  - DETECT_CAR_DAMAGE_CONFIDENCE_THRESHOLD
+  - DETECT_CAR_MATCH_THRESHOLD
+
+จุดที่คนแก้ต่อควรรู้:
+  - property แบบตัวพิมพ์ใหญ่ เช่น MODEL_PATH, DEVICE ถูกทำไว้เพื่อให้โค้ด inference เรียกง่าย
+  - ถ้าเพิ่ม setting ใหม่ ควรเพิ่มทั้ง field ตัวพิมพ์เล็ก และ compatibility property ตัวพิมพ์ใหญ่ ถ้าจะใช้ style เดิม
+
+4.3.2 normalize_runtime(logger=None)
+หน้าที่:
+  - ตรวจความพร้อมของ GPU
+  - ถ้าตั้งค่า use_gpu=True หรือ device ขึ้นต้นด้วย cuda แต่ torch.cuda.is_available() เป็น False จะ fallback เป็น CPU
+
+Input:
+  - logger: optional logger สำหรับ warning
+
+Output:
+  - ไม่มี return แต่แก้ค่า self.use_gpu และ self.device
+
+ถ้าจะแก้:
+  - ถ้าต้องรองรับ multi-GPU เช่น cuda:0, cuda:1 ให้ปรับ logic device ที่นี่และจุดที่เรียก YOLO/torch ใน engine.py
+
+4.4 Lifecycle Function Code
+ไฟล์:
+  app/projects/detect_car/lifecycle.py
+
+4.4.1 detect_car_lifespan(app)
+หน้าที่:
+  - จัดการ resource lifecycle ของ detect_car
+  - โหลดโมเดลตอน startup
+  - สร้างและ start BatchInferenceEngine
+  - shutdown engine ตอนปิดระบบ
+
+Input:
+  - app: FastAPI app/router lifespan context
+
+Output:
+  - async context manager
+
+ขั้นตอน startup:
+  - settings.normalize_runtime(logger)
+  - load_models()
+  - asyncio.get_running_loop()
+  - BatchInferenceEngine(...)
+  - engine.start()
+  - app.state.detect_car_engine = engine
+  - ถ้าใช้ GPU จะสร้าง vram_cleanup task
+
+ขั้นตอน shutdown:
+  - await engine.stop()
+  - cancel detect_car_cleanup_task
+  - torch.cuda.empty_cache() ถ้าใช้ GPU
+
+ถ้าจะแก้:
+  - ถ้าจะโหลด resource เพิ่ม เช่น model ใหม่ ให้เพิ่มใน load_models() และส่งเข้า BatchInferenceEngine
+  - ถ้าจะเพิ่ม background task ใหม่ ให้สร้างใน startup และ cancel ใน finally เช่นเดียวกับ detect_car_cleanup_task
+
+4.5 Core Function Code
+ไฟล์:
+  app/projects/detect_car/core/engine.py
+
+4.5.1 BatchItem
+หน้าที่:
+  - เป็น dataclass สำหรับเก็บ request ที่รอ inference
+
+Field:
+  - request_id: id สำหรับ log/trace
+  - expected_view: มุมหรือประเภทภาพที่ client คาดหวัง
+  - img: image RGB แบบ numpy array
+  - tensor: tensor สำหรับ ConvNeXt
+  - future: asyncio.Future สำหรับส่งผลกลับไปที่ router
+  - blur_score: คะแนนความชัดของภาพ
+  - enqueue_at: เวลาที่ request เข้า queue
+
+ถ้าจะแก้:
+  - ถ้าต้องส่งข้อมูลเพิ่มเข้า engine เช่น filename หรือ image size ให้เพิ่ม field ที่นี่ และปรับ prepare_single_item() ใน view_service.py
+
+4.5.2 BackpressureGate
+หน้าที่:
+  - จำกัดจำนวน request ที่ระบบรับพร้อมกัน
+  - ป้องกัน memory/queue overload
+
+method:
+  - acquire()
+    ถ้า current_count น้อยกว่า max จะเพิ่ม count และ return True
+    ถ้าเต็มแล้ว return False
+
+  - release()
+    ลด current_count ลง แต่ไม่ให้ต่ำกว่า 0
+
+  - current_count
+    คืนจำนวน active task ปัจจุบัน
+
+ถ้าจะแก้:
+  - ถ้าต้องการเปลี่ยน capacity ให้แก้ DETECT_CAR_MAX_QUEUE_DEPTH
+  - ถ้าต้องการแยก limit ระหว่าง predict_view กับ predict_damage ต้องสร้าง gate แยกหรือเพิ่ม logic ใน router.py
+
+4.5.3 TelemetryTracker
+หน้าที่:
+  - เก็บ performance metrics ของ batch inference
+
+method:
+  - record_batch(size, avg_latency_ms, error_count)
+    บันทึกจำนวน request, latency เฉลี่ย และ error ใน batch
+
+  - get_stats()
+    คืน total_processed, total_errors, avg_latency_ms, avg_batch_efficiency, uptime_seconds
+
+ถ้าจะแก้:
+  - ถ้าต้องการเพิ่ม p95 latency ต้องเก็บ latency list เพิ่มใน class นี้
+  - ถ้าเพิ่ม metric ต้องแก้ schemas/health.py และ router.py ด้วย
+
+4.5.4 BatchInferenceEngine
+หน้าที่:
+  - เป็นตัวควบคุม inference หลักของ predict_view
+  - เก็บโมเดล 3 ตัว คือ convnext, yolo_gen, yolo_damage
+  - จัด queue, worker, batch และ threadpool inference
+
+method สำคัญ:
+
+start()
+  - สร้าง worker task ตาม settings.NUM_BATCH_WORKERS
+  - worker แต่ละตัวจะรออ่าน item จาก queue
+
+stop()
+  - cancel worker ทั้งหมด
+  - ถ้ายังมี item ค้างใน queue จะ set exception กลับไปที่ future
+  - release backpressure ของ item ที่ค้าง
+
+submit_nowait(item)
+  - ใส่ BatchItem เข้า asyncio.Queue
+  - ถ้า queue เต็มจะ raise asyncio.QueueFull
+
+_worker(worker_id)
+  - ดึง item แรกจาก queue
+  - รอ item เพิ่มจนกว่าจะครบ BATCH_MAX_SIZE หรือเกิน BATCH_MAX_WAIT
+  - ส่ง batch ไป run ใน MODEL_THREAD_POOL ผ่าน _run_batch_sync()
+
+_run_batch_sync(batch)
+  - function ที่มี logic inference หลัก
+  - ทำงานใน threadpool เพื่อไม่ block event loop
+
+ลำดับ logic ใน _run_batch_sync:
+  1. ลบ item ที่ future ถูก cancel แล้ว
+  2. รวม tensor เป็น batch ด้วย torch.stack()
+  3. ย้าย tensor ไปยัง settings.DEVICE
+  4. ถ้าใช้ GPU และโมเดลเป็น float16 จะ cast tensor เป็น half
+  5. แปลง img RGB เป็น BGR สำหรับ YOLO
+  6. เรียก yolo_gen เพื่อจำแนกประเภทภาพ
+  7. เลือก damage_indices จากผล yolo_gen
+  8. เรียก yolo_damage เฉพาะภาพที่ต้องตรวจ damage
+  9. เลือก cnn_indices สำหรับภาพที่ควรเข้า ConvNeXt
+  10. เรียก convnext เฉพาะ cnn_indices
+  11. softmax logits เป็น probability
+  12. map probability index ให้ตรง label ของระบบ
+  13. เรียก build_result() ทีละ item
+  14. set_result หรือ set_exception กลับไปที่ future
+  15. record metrics
+  16. release backpressure และ clear img/tensor
+
+จุดที่คนแก้ต่อควรรู้:
+  - yolo_gen และ yolo_damage มี lock เพราะ Ultralytics YOLO อาจไม่ thread-safe เมื่อถูกเรียกพร้อมกัน
+  - ConvNeXt ใช้ batch tensor แต่ YOLO ใช้ list ของ image
+  - ถ้าเพิ่มโมเดลใหม่ ควรเพิ่มใน load_models(), lifecycle.py และ constructor ของ BatchInferenceEngine
+  - ถ้าปรับ label order ของ ConvNeXt ต้องแก้ mapping ใน _run_batch_sync ด้วย
+  - อย่าลืม release backpressure เมื่อเพิ่ม error path ใหม่
+
+4.6 Labels Function Code
+ไฟล์:
+  app/projects/detect_car/core/labels.py
+
+4.6.1 normalize_class_name(name)
+หน้าที่:
+  - normalize class name เป็น lowercase เพื่อใช้เทียบ string
+
+Input:
+  - name: str
+
+Output:
+  - str lowercase
+
+4.6.2 map_yolo_to_frontend(cls_name, expected_view="")
+หน้าที่:
+  - แปลง class name จาก YOLO เป็น key ที่ frontend ใช้
+  - กรณี wheel จะใช้ expected_view เพื่อเลือกตำแหน่งล้อ
+
+Input:
+  - cls_name: class จาก YOLO เช่น chassis_number, engine_room, wheel
+  - expected_view: view ที่ client ส่งมา
+
+Output:
+  - frontend key เช่น ChassisNumber, EngineCompartment, TireFrontLeft
+
+ถ้าจะแก้:
+  - ถ้าเพิ่ม class ใหม่ใน YOLO ให้เพิ่มใน YOLO_TO_FRONTEND_MAP
+  - ถ้าเพิ่ม expected_view ใหม่ ต้องเพิ่มใน INSURANCE_ANGLE_MAP ด้วย
+
+4.7 Service Function Code
+
+4.7.1 services/preprocessor.py
+หน้าที่:
+  - เตรียมรูปก่อนเข้า model
+
+decode_and_analyze_image(content)
+  - Input: bytes ของรูป
+  - Process:
+    1. cv2.imdecode bytes เป็น BGR image
+    2. ถ้า decode ไม่ได้ return None
+    3. แปลงเป็น grayscale
+    4. คำนวณ blur_score ด้วย cv2.Laplacian(...).var()
+    5. แปลง BGR เป็น RGB
+  - Output: tuple(img_rgb, blur_score) หรือ None
+
+prepare_image_for_inference(content)
+  - Input: bytes ของรูป
+  - Process:
+    1. เรียก decode_and_analyze_image()
+    2. ถ้า decode ไม่ได้ return None
+    3. preprocess รูปเป็น tensor
+    4. ถ้าใช้ GPU จะพยายาม pin_memory()
+  - Output: tuple(img, blur_score, tensor) หรือ None
+
+ถ้าจะแก้:
+  - ถ้าต้องเปลี่ยนขนาด input ของ ConvNeXt ให้แก้ Resize((224, 224))
+  - ถ้าต้องเปลี่ยน normalization ให้แก้ Normalize(...)
+  - ถ้าต้องเพิ่ม quality check เช่น overexposure/dark image ให้เพิ่มใน decode_and_analyze_image() และ schema/response
+
+4.7.2 services/model_loader.py
+หน้าที่:
+  - โหลดโมเดลทั้งหมดที่ระบบต้องใช้
+
+load_models()
+  - Input: ไม่มี ใช้ settings จาก config.py
+  - Output: tuple(convnext, yolo_gen, yolo_damage)
+  - Process:
+    1. สร้าง MultiTaskConvNeXt()
+    2. โหลด weight จาก settings.MODEL_PATH
+    3. แก้ key checkpoint legacy ถ้ามี fc_projection
+    4. load_state_dict(strict=False)
+    5. eval()
+    6. ถ้า USE_GPU จะใช้ half precision
+    7. โหลด YOLO general จาก settings.YOLO_GEN_PATH
+    8. โหลด YOLO damage จาก settings.YOLO_DAMAGE_PATH
+    9. warmup model ด้วย dummy input
+
+ถ้าจะแก้:
+  - ถ้าเปลี่ยนชื่อไฟล์โมเดล ให้แก้ config.py หรือ env path
+  - ถ้าเพิ่มโมเดลใหม่ ให้ return model เพิ่มและปรับ lifecycle.py/engine.py
+  - ถ้า checkpoint structure เปลี่ยน ให้แก้ logic map key ก่อน load_state_dict()
+
+4.7.3 services/analyzer.py
+หน้าที่:
+  - รวมผลจาก YOLO general, ConvNeXt และ YOLO damage เป็น response สุดท้าย
+
+build_result(item, probs, yolo_gen_out, yolo_damage_out, total_ms, settings)
+  - Input:
+    - item: BatchItem
+    - probs: probability จาก ConvNeXt
+    - yolo_gen_out: output จาก YOLO general
+    - yolo_damage_out: output จาก YOLO damage
+    - total_ms: เวลาประมวลผล
+    - settings: config
+  - Output:
+    - dict ที่มี prediction, is_car, match, quality, damages, time_ms
+  - Process:
+    1. extract damage detections
+    2. extract yolo detections
+    3. คำนวณ largest car area ratio
+    4. คำนวณ is_too_far
+    5. filter hallucinated interior
+    6. เลือกว่าจะใช้ decide_yolo_class หรือ decide_exterior_class
+    7. ถ้าไม่ใช่รถ กำหนด label เป็น Unknown และลบ damages
+    8. คืน response dict
+
+process_batch_results(results, expected_views, files)
+  - ใช้แปลงผลหลายไฟล์เป็น summary list
+  - ปัจจุบันยังไม่มี endpoint ที่เรียกใช้โดยตรง
+
+ถ้าจะแก้:
+  - ถ้าต้องเพิ่ม field ใน response เช่น reason, all_candidates ให้เพิ่มที่ build_result()
+  - ถ้าต้องเปลี่ยนเงื่อนไข is_car หรือ match ให้ดูร่วมกับ view_matcher.py
+  - ถ้าต้องเปลี่ยน rule รถอยู่ไกลเกินไป ให้แก้ min_car_area_ratio ใน config.py หรือ logic is_too_far ที่นี่
+
+4.7.4 services/view_service.py
+หน้าที่:
+  - เตรียมข้อมูลด้าน expected_view และ BatchItem
+
+validate_expected_view(expected_view)
+  - Input: expected_view string
+  - Output: ไม่มี return ถ้าถูกต้อง
+  - Error: raise ValueError พร้อม valid_values ถ้า expected_view ไม่อยู่ใน INSURANCE_ANGLE_MAP
+
+prepare_single_item(request_id, expected_view, img, tensor, blur_score, loop)
+  - Input:
+    - request_id
+    - expected_view
+    - img
+    - tensor
+    - blur_score
+    - loop
+  - Output:
+    - BatchItem
+
+ถ้าจะแก้:
+  - ถ้าเพิ่ม field ใน BatchItem ต้องแก้ function นี้ด้วย
+  - ถ้าอยาก normalize expected_view เช่น lowercase input ให้ทำใน validate_expected_view()
+
+4.7.5 services/view_matcher.py
+หน้าที่:
+  - เป็นศูนย์กลาง logic การ match view
+  - แยกการตัดสินระหว่าง YOLO class ทั่วไปกับ exterior angle
+
+has_yolo_exterior(detections, probs, match_threshold)
+  - ตรวจว่าผล YOLO ควรถูกมองว่าเป็น exterior หรือไม่
+  - ถ้า top detection เป็น exterior และ confidence >= threshold จะ return True
+  - ถ้า top detection เป็น others แต่ ConvNeXt confidence สูง จะ return True
+
+decide_yolo_class(expected_view, detections, match_threshold)
+  - ใช้กับ expected_view ที่ไม่ใช่มุม exterior
+  - หา detection ที่ตรงกับ expected_view ผ่าน INSURANCE_ANGLE_MAP
+  - ถ้ามี detection ที่ confidence >= threshold จะ return expected_view, is_car=True, match=True
+  - ถ้าไม่ match จะ return best detection ที่ map ไป frontend key
+
+build_exterior_results(probs)
+  - แปลง probability จาก ConvNeXt เป็น label/confidence
+  - apply SWAP_MAP เพื่อแก้ซ้าย/ขวา
+  - sort จาก confidence มากไปน้อย
+
+decide_exterior_class(expected_view, probs, detections, yolo_exterior, match_threshold)
+  - ใช้สำหรับตัดสินมุมรถภายนอก
+  - ถ้า YOLO ไม่ใช่ exterior จะใช้ best YOLO detection เป็นผล
+  - ถ้า YOLO เป็น exterior จะใช้ ConvNeXt แยกมุม
+  - คำนวณ match จาก expected_view และ confidence
+
+ถ้าจะแก้:
+  - ถ้า logic match ผิดบ่อย ให้เริ่มแก้ที่ไฟล์นี้
+  - ถ้าไม่ต้องการ swap ซ้าย/ขวา ให้แก้หรือเอา SWAP_MAP ออกใน build_exterior_results()
+  - ถ้าต้องการปรับ threshold เฉพาะบาง class ให้เพิ่ม rule ใน decide_yolo_class() หรือ decide_exterior_class()
+
+4.7.6 services/detections.py
+หน้าที่:
+  - จัดการ output จาก YOLO model
+  - แปลง output เป็น dict ที่ระบบใช้งานต่อได้
+
+_box_iou(box_a, box_b)
+  - Input: box 2 กล่องในรูปแบบ [x1, y1, x2, y2]
+  - Output: IoU float
+  - ใช้สำหรับ NMS ของ damage
+
+extract_yolo_detections(yolo_gen_out)
+  - Input: output จาก YOLO general
+  - Output: list ของ dict {label, confidence}
+  - รองรับ output 2 แบบ:
+    - boxes สำหรับ detection model
+    - probs สำหรับ classification model
+  - แปลง label ภาษาไทยเป็นอังกฤษด้วย THAI_TO_EN_CLASS_MAP
+
+suppress_overlapping_damages(damages, iou_threshold=0.85)
+  - Input: list damages
+  - Output: list damages หลังกรอง box ซ้อน
+  - เรียงจาก confidence สูงไปต่ำ แล้วเก็บ box ที่ไม่ทับกับ box ที่เก็บแล้วเกิน threshold
+
+extract_damage_detections(item, yolo_damage_out, min_confidence=0.15, nms_iou_threshold=0.85)
+  - Input: output จาก YOLO damage
+  - Output: list ของ damage dict {label, confidence, box}
+  - filter damage ที่ confidence ต่ำกว่า min_confidence
+  - round confidence และ box
+  - ทำ NMS ด้วย suppress_overlapping_damages()
+
+largest_car_area_ratio(yolo_gen_out)
+  - Input: output จาก YOLO general
+  - Output: float สัดส่วนพื้นที่รถที่ใหญ่ที่สุด
+  - ใช้ class exterior, car, roof
+  - ใช้ xyxyn ซึ่งเป็น normalized box
+
+filter_hallucinated_interior(detections, largest_ratio, expected_view)
+  - Input: detections, largest_ratio, expected_view
+  - Output: detections หลัง filter
+  - ถ้าภาพมีรถภายนอกใหญ่พอ จะกรอง interior/dashcam/mileage_screen ที่อาจเป็น false positive
+
+ถ้าจะแก้:
+  - ถ้า YOLO output format เปลี่ยน ให้แก้ extract_yolo_detections() หรือ extract_damage_detections()
+  - ถ้า damage ซ้อนกันมาก/น้อยเกินไป ให้ปรับ nms_iou_threshold
+  - ถ้า is_too_far ไม่แม่น ให้ดู largest_car_area_ratio() และ settings.MIN_CAR_AREA_RATIO
+
+4.7.7 services/damage_service.py
+หน้าที่:
+  - เรียก YOLO damage model สำหรับ endpoint /predict_damage
+
+predict_damage_sync(engine, item)
+  - Input:
+    - engine: BatchInferenceEngine ที่มี yolo_damage
+    - item: object ที่มี img และ blur_score
+  - Output:
+    - dict {damages, quality, time_ms}
+  - Process:
+    1. จับเวลาเริ่มต้น
+    2. แปลง RGB เป็น BGR
+    3. เรียก engine.yolo_damage ภายใต้ yolo_damage_lock
+    4. ใช้ conf และ imgsz จาก settings
+    5. extract damage detections
+    6. คืน quality และ time_ms
+
+ถ้าจะแก้:
+  - ถ้าต้องการใช้ YOLO general ก่อน damage ให้เพิ่ม logic ก่อนเรียก yolo_damage
+  - ถ้าต้องการให้ response มี image size ให้เพิ่มจาก item.img.shape ที่นี่
+
+4.8 Model Function Code
+
+4.8.1 models/convnext.py
+MultiTaskConvNeXt
+  - เป็น torch.nn.Module
+  - backbone ใช้ timm.create_model("convnext_small", pretrained=False, num_classes=1024)
+  - class_prediction ใช้ nn.Linear(1024, 8)
+  - forward(x) คืน logits 9 ช่อง โดยเพิ่ม Roof เป็น -100
+
+จุดที่คนแก้ต่อควรรู้:
+  - ถ้า train model ใหม่ที่ output class order เปลี่ยน ต้องแก้ทั้งไฟล์นี้และ mapping ใน engine.py
+  - ถ้าอยากให้ ConvNeXt ทำนาย Roof จริง ต้องเอา roof_logits mock ออกและ train head ใหม่
+  - ถ้าเปลี่ยน architecture เช่น convnext_tiny/convnext_base ต้องแก้ create_model และ checkpoint loading ใน model_loader.py
+
+4.8.2 models/yolo.py
+get_yolo_model(model_path, device)
+  - Input:
+    - model_path: path ของ .pt
+    - device: cpu หรือ cuda
+  - Output:
+    - YOLO model object
+  - Process:
+    1. ลด log ของ ultralytics เป็น ERROR
+    2. โหลดโมเดลด้วย YOLO(model_path)
+    3. ถ้า device เป็น cuda ให้ yolo.to(device)
+    4. return yolo
+
+ถ้าจะแก้:
+  - ถ้าใช้ device แบบ cuda:0/cuda:1 ต้องปรับเงื่อนไขจาก device == "cuda" เป็น device.startswith("cuda")
+  - ถ้าต้อง config YOLO เพิ่ม เช่น fuse model หรือ set overrides ให้เพิ่มใน function นี้
+
+4.9 แผนที่สำหรับคนแก้โค้ดต่อ
+สรุปว่าถ้าต้องการแก้ requirement แต่ละแบบควรเริ่มจากไฟล์ไหน
+
+เพิ่ม expected_view ใหม่:
+  1. core/labels.py
+     - เพิ่มใน INSURANCE_ANGLE_MAP
+     - เพิ่มใน FRONTEND_KEYS หรือ YOLO_CLASSES ถ้าจำเป็น
+     - เพิ่ม mapping ใน YOLO_TO_FRONTEND_MAP ถ้าเป็น YOLO class ใหม่
+  2. services/view_matcher.py
+     - เพิ่ม rule พิเศษถ้าการ match ไม่ตรง pattern เดิม
+  3. schemas/prediction.py
+     - ปรับ schema เฉพาะถ้ามี field response ใหม่
+
+เปลี่ยน threshold:
+  1. config.py
+     - blur_threshold
+     - match_threshold
+     - damage_confidence_threshold
+     - damage_nms_iou_threshold
+     - min_car_area_ratio
+  2. .env ของระบบ
+     - ใช้ DETECT_CAR_ prefix เพื่อ override ค่า
+
+เปลี่ยน model weight:
+  1. วางไฟล์ใหม่ใน ml/ หรือ path อื่น
+  2. config.py หรือ env
+     - DETECT_CAR_MODEL_PATH
+     - DETECT_CAR_YOLO_GEN_PATH
+     - DETECT_CAR_YOLO_DAMAGE_PATH
+  3. services/model_loader.py
+     - แก้ checkpoint loading ถ้า structure ไม่เหมือนเดิม
+
+เพิ่ม endpoint ใหม่:
+  1. router.py
+     - เพิ่ม route ใหม่
+  2. schemas/
+     - เพิ่ม request/response schema ถ้าจำเป็น
+  3. services/
+     - แยก business logic ออกจาก router
+  4. core/engine.py
+     - แก้เฉพาะถ้า endpoint ใหม่ต้องใช้ batch engine
+
+เปลี่ยน response format:
+  1. services/analyzer.py หรือ services/damage_service.py
+     - เพิ่ม/แก้ field ที่ return
+  2. schemas/prediction.py
+     - ปรับ Pydantic model ให้ตรง response
+  3. router.py
+     - ตรวจว่ามีการ pop/remove field หรือไม่
+
+แก้ปัญหา memory/queue/server overloaded:
+  1. config.py
+     - max_queue_depth
+     - batch_max_size
+     - batch_max_wait
+     - num_batch_workers
+  2. core/engine.py
+     - ตรวจ backpressure และ worker behavior
+  3. router.py
+     - ตรวจการ release backpressure ใน error path
+
+แก้ปัญหา detect มุมผิด:
+  1. services/view_matcher.py
+     - ตรวจ decide_exterior_class(), build_exterior_results(), SWAP_MAP
+  2. core/engine.py
+     - ตรวจ mapping index ของ ConvNeXt probability
+  3. core/labels.py
+     - ตรวจ label/mapping ว่าตรงกับ frontend และ expected_view หรือไม่
+  4. models/convnext.py
+     - ตรวจ class order ของ model head
+
+แก้ปัญหา damage ซ้ำหรือไม่เจอ:
+  1. config.py
+     - damage_confidence_threshold
+     - damage_nms_iou_threshold
+     - damage_image_size
+  2. services/detections.py
+     - extract_damage_detections()
+     - suppress_overlapping_damages()
+  3. services/damage_service.py
+     - ตรวจ parameter ที่ส่งเข้า YOLO
+
+4.10 ข้อควรระวังเวลาแก้ Function Code
+  - predict_view ใช้ BatchInferenceEngine และ future ดังนั้นต้องระวัง async/thread interaction
+  - backpressure ต้อง release เสมอ ไม่อย่างนั้น active_tasks จะค้างและระบบจะเริ่มตอบ queue_full
+  - YOLO model ถูกเรียกภายใต้ lock เพื่อกันปัญหา thread safety
+  - ConvNeXt output มีการ map index ใหม่ใน engine.py ถ้าแก้ model ต้องเช็ก mapping นี้ด้วย
+  - predict_view ลบ damages ออกจาก response ก่อน return ถ้าจะคืน damage ต้องปรับทั้ง router และ schema
+  - threshold หลายตัวควรแก้ผ่าน config/env ก่อน ไม่จำเป็นต้อง hard-code ใน logic
+  - labels.py เป็นจุดกลางของชื่อ class ควรแก้ที่นี่ก่อนกระจายไปแก้หลายไฟล์
+  - ถ้าเพิ่ม field ใน response ต้องแก้ Pydantic schema ให้ตรงด้วย ไม่อย่างนั้น FastAPI อาจ exclude หรือ validate ไม่ผ่าน
+  - ถ้าเพิ่ม endpoint ที่ใช้ model หนัก ควรพิจารณา queue/backpressure ด้วย เพื่อไม่ให้ server overload
+
+
+5. Model
+ระบบใช้โมเดล 3 ตัวร่วมกัน:
+
+5.1 ConvNeXt Vehicle View Classifier
+ไฟล์:
+  - app/projects/detect_car/ml/convnext_vehicle_view_classifier.pth
+
+Code:
+  - models/convnext.py
+  - services/model_loader.py
+
+หน้าที่:
+  - จำแนกมุมรถภายนอก เช่น Front, Front-Left, Left, Back-Left, Back, Back-Right, Right, Front-Right
+
+สถาปัตยกรรม:
+  - ConvNeXt Small จาก timm
+  - backbone output 1024
+  - class_prediction Linear(1024, 8)
+  - มีการปรับ output เป็น 9 logits เพื่อ compatibility โดยเพิ่ม Roof logit แบบค่าต่ำมาก
+
+ข้อสังเกต:
+  - ใน engine.py มีการ map index ของ output ให้ตรงกับ LABELS ที่ใช้จริง
+  - ใช้กับภาพที่ YOLO general บอกว่าเป็น exterior หรือ others ที่ควรจำแนกมุมเพิ่มเติม
+
+5.2 YOLO Photo Type Classifier
+ไฟล์:
+  - app/projects/detect_car/ml/yolo_photo_type_classifier.pt
+
+Code:
+  - models/yolo.py
+  - services/model_loader.py
+  - core/engine.py
+  - services/detections.py
+
+หน้าที่:
+  - เป็น gatekeeper ตรวจประเภทภาพ เช่น exterior, roof, interior, spare_tire, wheel, dashcam, mileage_screen, engine_room, chassis_number, inspection_document, others
+  - ช่วยตัดสินว่าควรใช้ ConvNeXt หรือไม่
+  - ช่วยตรวจว่า expected_view ตรงกับภาพที่ส่งมาหรือไม่
+
+Class ที่รองรับใน labels.py:
+  - chassis_number
+  - dashcam
+  - engine_room
+  - exterior
+  - inspection_document
+  - interior
+  - mileage_screen
+  - others
+  - roof
+  - spare_tire
+  - wheel
+
+5.3 YOLO Damage Detector
+ไฟล์:
+  - app/projects/detect_car/ml/yolo_damage_detector.pt
+
+Code:
+  - models/yolo.py
+  - services/model_loader.py
+  - core/engine.py
+  - services/damage_service.py
+  - services/detections.py
+
+หน้าที่:
+  - ตรวจจับตำแหน่งความเสียหายจากภาพรถ
+  - คืนผลเป็น label, confidence และ bounding box
+
+ค่า config สำคัญ:
+  - DAMAGE_CONFIDENCE_THRESHOLD default 0.15
+  - DAMAGE_NMS_IOU_THRESHOLD default 0.85
+  - DAMAGE_IMAGE_SIZE default 1280
+
+5.1 Train
+ใน source code เฉพาะโฟลเดอร์ detect_car ไม่พบ train script, training pipeline, notebook หรือ dataset loader สำหรับฝึกโมเดล
+
+สิ่งที่มีในโค้ด:
+  - มีเฉพาะ model architecture สำหรับ ConvNeXt
+  - มีการโหลด weight จากไฟล์ .pth และ .pt
+  - มี runtime inference, preprocessing, batching และ post-processing
+
+สรุป:
+  - การ train น่าจะทำแยกนอก repository หรือไม่ได้รวมไว้ในโฟลเดอร์ detect_car
+  - โฟลเดอร์นี้ถูกออกแบบเป็น backend inference service มากกว่า training service
+
+5.2 Result
+ผลลัพธ์หลักจากระบบแบ่งเป็น 2 กลุ่ม:
+
+Predict View Result:
+  - prediction.label: label ที่ระบบทำนาย เช่น Front, Interior, Dashcam, EngineCompartment
+  - prediction.confidence: confidence เป็นเปอร์เซ็นต์
+  - is_car: ระบบถือว่าเป็นภาพรถ/ภาพที่เกี่ยวข้องกับงานตรวจรถหรือไม่
+  - match: prediction ตรงกับ expected_view หรือไม่
+  - quality.is_blurry: ภาพเบลอหรือไม่
+  - quality.blur_score: คะแนนความชัด
+  - quality.is_too_far: รถอยู่ไกลเกินไปหรือไม่ คำนวณจาก car_area_ratio
+  - quality.car_area_ratio: สัดส่วนพื้นที่รถจาก YOLO box
+  - time_ms: เวลาประมวลผล
+  - request_id: id สำหรับ trace request
+
+Predict Damage Result:
+  - damages: list ของความเสียหายที่ตรวจพบ
+  - damages[].label: ประเภทความเสียหายตาม class ของ YOLO damage
+  - damages[].confidence: confidence เป็นเปอร์เซ็นต์
+  - damages[].box: bounding box ตำแหน่งความเสียหาย [x1, y1, x2, y2]
+  - quality.is_blurry
+  - quality.blur_score
+  - time_ms
+  - request_id
+
+Status Result:
+  - performance: latency, batch efficiency, total processed, error rate, uptime
+  - load: queue depth, active tasks, max capacity
+  - config: device, batch max, workers
+
+5.3 Summarie
+ภาพรวมการทำงานของ detect_car:
+
+  1. API รับภาพจากผู้ใช้ผ่าน multipart/form-data
+  2. ตรวจชนิดไฟล์และขนาดไฟล์
+  3. Decode ภาพด้วย OpenCV
+  4. คำนวณ blur score ด้วย Variance of Laplacian
+  5. ถ้าภาพเบลอเกิน threshold จะคืน error ทันที
+  6. สำหรับ predict_view จะ preprocess เป็น tensor 224x224 แล้วส่งเข้า batch queue
+  7. BatchInferenceEngine รวมหลาย request เป็น batch เพื่อลด overhead
+  8. YOLO general ตรวจประเภทภาพก่อน
+  9. ถ้าเป็น exterior/others จะใช้ ConvNeXt จำแนกมุมรถ
+  10. ถ้าเหมาะสมจะใช้ YOLO damage ตรวจจับความเสียหาย
+  11. analyzer รวมผลเป็น response พร้อม match, quality และ confidence
+  12. status endpoint ใช้ดูสุขภาพระบบและประสิทธิภาพการประมวลผล
+
+จุดเด่น:
+  - รองรับ batching และ queue เพื่อให้รับ request ได้มากขึ้น
+  - มี backpressure ป้องกัน server overload
+  - มี metrics สำหรับ monitoring
+  - แยก logic เป็น router, services, core, models, schemas ค่อนข้างชัดเจน
+  - รองรับทั้ง CPU และ GPU โดยมี fallback เมื่อ GPU ใช้งานไม่ได้
+
+ข้อจำกัดจาก source code:
+  - ไม่มี train script อยู่ใน detect_car
+  - ไม่มี dataset อยู่ใน detect_car
+  - ไม่มี unit test สำหรับ detect_car ในโฟลเดอร์นี้
+  - ConvNeXt ไม่ได้ทำนาย Roof โดยตรง แต่ใช้ YOLO สำหรับ roof
+
+
+6. Dataset
+ในโฟลเดอร์ detect_car ไม่พบ dataset หรือโค้ดโหลด dataset สำหรับ training
+
+ข้อมูล class/label ที่ใช้แทนเอกสาร dataset schema อยู่ใน:
+  - core/labels.py
+
+กลุ่ม label สำคัญ:
+
+Exterior labels:
+  - Front
+  - Front-Left
+  - Left
+  - Back-Left
+  - Back
+  - Back-Right
+  - Right
+  - Front-Right
+
+Frontend keys:
+  - Interior
+  - SpareTire
+  - ChassisNumber
+  - Accessories
+  - Dashcam
+  - Odometer
+  - TaxSticker
+  - RegistrationDoc
+  - EngineCompartment
+  - TireFrontLeft
+  - TireFrontRight
+  - TireBackLeft
+  - TireBackRight
+  - Others
+
+YOLO classes:
+  - chassis_number
+  - dashcam
+  - engine_room
+  - exterior
+  - inspection_document
+  - interior
+  - mileage_screen
+  - others
+  - roof
+  - spare_tire
+  - wheel
+
+Mapping สำคัญ:
+  - INSURANCE_ANGLE_MAP ใช้ตรวจ expected_view กับ class ที่ยอมรับ
+  - THAI_TO_EN_CLASS_MAP ใช้แปลงชื่อ class ภาษาไทยจาก YOLO เป็นอังกฤษ
+  - YOLO_TO_FRONTEND_MAP ใช้แปลง output ของ YOLO ไปเป็น key ที่ frontend เข้าใจ
+  - SWAP_MAP ใช้แก้กรณีซ้าย-ขวาสลับจากมุมกล้อง
+
+สรุป Dataset:
+  - ไม่มี raw dataset อยู่ใน source code นี้
+  - ไม่มี training dataset path อยู่ใน config.py
+  - โค้ด backend นี้ใช้ model weights ที่ train มาแล้วในโฟลเดอร์ ml/
+  - หากต้องการทำเอกสาร dataset เพิ่ม ควรแนบแหล่งข้อมูล training แยก เช่น โครงสร้างโฟลเดอร์รูป, จำนวนภาพต่อ class, train/validation split และ annotation format ของ YOLO damage

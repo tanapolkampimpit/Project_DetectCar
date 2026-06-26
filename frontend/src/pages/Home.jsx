@@ -272,7 +272,7 @@ export default function Home() {
     setOriginalImage(base64Image);
 
     try {
-      const healthRes = await fetch('/api/v1/health');
+      const healthRes = await fetch('/api/v1/detect-car/status');
       if (!healthRes.ok) throw new Error(`Health check failed ${healthRes.status}`);
       const healthData = await healthRes.json();
       const queueId = `${activeAngle.id}-${Date.now()}`;
@@ -315,7 +315,7 @@ export default function Home() {
       formData.append('file', item.file, 'image.jpg');
       formData.append('expected_view', item.angle.modelKey);
 
-      const res = await fetch('/api/v1/predict_view', {
+      const res = await fetch('/api/v1/detect-car/predict_view', {
         method: 'POST',
         body: formData,
       });
@@ -393,7 +393,7 @@ export default function Home() {
       const formData = new FormData();
       formData.append('file', item.file, 'image.jpg');
 
-      const res = await fetch('/api/v1/predict_damage', {
+      const res = await fetch('/api/v1/detect-car/predict_damage', {
         method: 'POST',
         body: formData,
       });
@@ -564,7 +564,7 @@ export default function Home() {
     formData.append('file', file, file.name || 'image.jpg');
     formData.append('expected_view', expectedModelKey);
 
-    const res = await fetch('/api/v1/predict_view', {
+    const res = await fetch('/api/v1/detect-car/predict_view', {
       method: 'POST',
       body: formData,
     });
